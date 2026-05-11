@@ -1,29 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
 import { optimizePrompt, generateFoamArt } from '../../lib/vertex-ai';
 
-// Mock the Vertex AI SDK
-vi.mock('@google-cloud/vertexai', () => {
-  const VertexAI = vi.fn().mockImplementation(function (this: { getGenerativeModel: (options: unknown) => unknown }) {
-    this.getGenerativeModel = vi.fn().mockReturnValue({
+// Mock the new Gen AI SDK
+vi.mock('@google/genai', () => {
+  const GoogleGenAI = vi.fn().mockImplementation(function (this: { models: unknown }) {
+    this.models = {
       generateContent: vi.fn().mockResolvedValue({
-        response: {
-          candidates: [
-            {
-              content: {
-                parts: [
-                  { text: 'A beautiful coffee foam art of a sunny beach with palm trees' }
-                ]
-              }
+        text: 'A beautiful coffee foam art of a sunny beach with palm trees',
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: 'A beautiful coffee foam art of a sunny beach with palm trees' }
+              ]
             }
-          ]
-        }
+          }
+        ]
       })
-    });
+    };
   });
-  return { VertexAI };
+  return { GoogleGenAI };
 });
 
-describe('Vertex AI Service', () => {
+describe('Gen AI Service', () => {
   describe('optimizePrompt', () => {
     it('should convert a simple happy place into a detailed coffee art prompt', async () => {
       const input = 'a sunny beach';

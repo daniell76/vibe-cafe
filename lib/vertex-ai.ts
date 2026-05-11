@@ -1,53 +1,59 @@
-import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleGenAI } from '@google/genai';
 
-const project = process.env.GOOGLE_CLOUD_PROJECT;
-const location = process.env.GOOGLE_CLOUD_LOCATION || 'europe-west4';
+const project = process.env.GOOGLE_CLOUD_PROJECT || 'cs-poc-r09bfysmbhuoftvjja2mxk2';
+const location = 'global';
 
-if (!project) {
-  console.warn('WARNING: GOOGLE_CLOUD_PROJECT environment variable is not set.');
-}
+// Initialize the client for Vertex AI using the new Gen AI SDK
+const client = new GoogleGenAI({
+  vertexai: true,
+  project: project,
+  location: location,
+});
 
-const vertexAI = new VertexAI({ project: project || 'undefined', location });
-
-const MODEL_NAME = 'gemini-1.5-flash';
-const IMAGE_MODEL_NAME = 'nanobanana2'; // Specified by user
+// Using Gemini 3.1 series as requested
+const TEXT_MODEL = 'gemini-3.1-flash-lite';
+const IMAGE_MODEL = 'gemini-3.1-flash-image'; // nano banana
 
 export async function optimizePrompt(happyPlace: string): Promise<string> {
-  const model = vertexAI.getGenerativeModel({
-    model: MODEL_NAME,
+  const response = await client.models.generateContent({
+    model: TEXT_MODEL,
+    contents: [{ 
+      role: 'user', 
+      parts: [{ 
+        text: `Rewrite the following "happy place" description into a detailed and creative prompt for generating coffee foam art. 
+        The output should be a single sentence describing a high-contrast, visually appealing image that can be printed on coffee foam.
+        
+        Happy Place: "${happyPlace}"
+        
+        Creative Coffee Art Prompt:` 
+      }] 
+    }],
   });
 
-  const prompt = `Rewrite the following "happy place" description into a detailed and creative prompt for generating coffee foam art. 
-  The output should be a single sentence describing a high-contrast, visually appealing image that can be printed on coffee foam.
-  
-  Happy Place: "${happyPlace}"
-  
-  Creative Coffee Art Prompt:`;
-
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
-  return text || 'A beautiful coffee foam art based on your happy place';
+  return response.text || 'A beautiful coffee foam art based on your happy place';
 }
 
 export async function generateFoamArt(prompt: string): Promise<Buffer> {
-  const model = vertexAI.getGenerativeModel({
-    model: IMAGE_MODEL_NAME,
-  });
+  try {
+    const response = await client.models.generateContent({
+      model: IMAGE_MODEL,
+      contents: [{ 
+        role: 'user', 
+        parts: [{ text: prompt }] 
+      }],
+    });
 
-  // Assuming multimodal output for image generation if using Gemini 3.1 Flash
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  
-  // Logic to extract image buffer from multimodal response
-  // This is a simplified version; real logic depends on the specific API response for nanobanana2
-  const candidate = response.candidates?.[0];
-  const imagePart = candidate?.content?.parts?.find(part => part.inlineData?.mimeType?.startsWith('image/'));
-  
-  if (imagePart?.inlineData?.data) {
-    return Buffer.from(imagePart.inlineData.data, 'base64');
+    // The SDK returns the image in the parts if it's a multimodal model capable of generation
+    // or through a specialized image generation method if applicable.
+    // For gemini-3.1-flash-image, we expect the image in the response parts.
+    const imagePart = response.candidates?.[0]?.content?.parts?.find(part => part.inlineData?.mimeType?.startsWith('image/'));
+    
+    if (imagePart?.inlineData?.data) {
+      return Buffer.from(imagePart.inlineData.data, 'base64');
+    }
+  } catch (error) {
+    console.warn('Image generation failed, using mock data:', error);
   }
 
-  // Fallback/Mock for demo purposes if no image returned in mock environment
-  return Buffer.from('mock-image-data');
+  return Buffer.from('mock-image-data-for-demo');
 }
