@@ -1,0 +1,52 @@
+:root {
+  --background: #fdfaf6;
+  --foreground: #2c2c2c;
+  --google-blue: #4285f4;
+  --google-red: #ea4335;
+  --google-yellow: #fbbc05;
+  --google-green: #34a853;
+  --coffee-dark: #3e2723;
+  --coffee-medium: #6d4c41;
+  --coffee-light: #d7ccc8;
+  --cream: #fff9f0;
+  --card-bg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #1a1a1a;
+    --foreground: #f5f5f5;
+    --card-bg: #2a2a2a;
+    --coffee-light: #4e342e;
+  }
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: 'Product Sans', 'Roboto', system-ui, -apple-system, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+h1, h2, h3 {
+  color: var(--coffee-dark);
+}
+
+@media (prefers-color-scheme: dark) {
+  h1, h2, h3 {
+    color: var(--coffee-light);
+  }
+}
