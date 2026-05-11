@@ -1,3 +1,10 @@
+terraform {
+  backend "gcs" {
+    bucket = "cs-poc-r09bfysmbhuoftvjja2mxk2_tfstate"
+    prefix = "vibe-cafe"
+  }
+}
+
 provider "google" {
   project = var.project_id
   region  = var.region

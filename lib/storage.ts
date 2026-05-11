@@ -1,6 +1,6 @@
 import { Storage } from '@google-cloud/storage';
 
-const project = process.env.GOOGLE_CLOUD_PROJECT || 'your-project-id';
+const project = process.env.GOOGLE_CLOUD_PROJECT;
 const bucketName = process.env.VIBE_CAFE_BUCKET || 'vibe-cafe-images';
 
 const storage = new Storage({ projectId: project });

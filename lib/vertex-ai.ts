@@ -1,9 +1,13 @@
 import { VertexAI } from '@google-cloud/vertexai';
 
-const project = process.env.GOOGLE_CLOUD_PROJECT || 'your-project-id';
-const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central 1';
+const project = process.env.GOOGLE_CLOUD_PROJECT;
+const location = process.env.GOOGLE_CLOUD_LOCATION || 'europe-west4';
 
-const vertexAI = new VertexAI({ project, location });
+if (!project) {
+  console.warn('WARNING: GOOGLE_CLOUD_PROJECT environment variable is not set.');
+}
+
+const vertexAI = new VertexAI({ project: project || 'undefined', location });
 
 const MODEL_NAME = 'gemini-1.5-flash';
 const IMAGE_MODEL_NAME = 'nanobanana2'; // Specified by user
