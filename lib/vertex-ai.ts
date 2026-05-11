@@ -22,7 +22,8 @@ export async function optimizePrompt(happyPlace: string): Promise<string> {
 
   const result = await model.generateContent(prompt);
   const response = await result.response;
-  return response.text();
+  const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+  return text || 'A beautiful coffee foam art based on your happy place';
 }
 
 export async function generateFoamArt(prompt: string): Promise<Buffer> {

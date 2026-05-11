@@ -7,7 +7,15 @@ vi.mock('@google-cloud/vertexai', () => {
     this.getGenerativeModel = vi.fn().mockReturnValue({
       generateContent: vi.fn().mockResolvedValue({
         response: {
-          text: () => 'A beautiful coffee foam art of a sunny beach with palm trees'
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { text: 'A beautiful coffee foam art of a sunny beach with palm trees' }
+                ]
+              }
+            }
+          ]
         }
       })
     });
