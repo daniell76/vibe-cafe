@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import OrderForm from '@/components/OrderForm';
 import VibeLoader from '@/components/VibeLoader';
+import FoamPreview from '@/components/FoamPreview';
+import OrderHistory from '@/components/OrderHistory';
 
 type AppState = 'IDLE' | 'PROCESSING' | 'SUCCESS' | 'ERROR';
 
@@ -34,8 +36,10 @@ export default function Home() {
 
   return (
     <main>
-      <h1>Google Cloud Vibe Cafe</h1>
-      <p className="subtitle">Welcome to "Cloud in your Coffee" – customized coffee foam art powered by AI.</p>
+      <header>
+        <h1>Google Cloud Vibe Cafe</h1>
+        <p className="subtitle">"Cloud in your Coffee" – Generate AI coffee foam art with Gemini 3.1 Flash.</p>
+      </header>
 
       <div className="content-container">
         {state === 'IDLE' && (
@@ -51,33 +55,42 @@ export default function Home() {
         {state === 'SUCCESS' && result && (
           <div className="result-view">
             <h2>Your Coffee Art is Ready!</h2>
-            <div className="image-container">
-              <img src={result.imageUrl} alt="AI Coffee Foam Art" className="foam-art" />
-              <div className="cup-overlay"></div>
+            <FoamPreview imageUrl={result.imageUrl} />
+            <div className="result-footer">
+              <p className="order-id">Order ID: {result.orderId}</p>
+              <button onClick={reset} className="secondary-btn">New Order</button>
             </div>
-            <p className="order-id">Order ID: {result.orderId}</p>
-            <button onClick={reset} className="secondary-btn">New Order</button>
           </div>
         )}
 
         {state === 'ERROR' && (
           <div className="error-view">
             <h2>Something went wrong</h2>
-            <p>{error}</p>
+            <p className="error-msg">{error}</p>
             <button onClick={reset} className="secondary-btn">Try Again</button>
           </div>
         )}
       </div>
 
+      <OrderHistory />
+
       <style jsx>{`
+        header {
+          text-align: center;
+          margin-bottom: 4rem;
+        }
         .subtitle {
-          margin-bottom: 3rem;
           color: var(--coffee-medium);
           font-size: 1.2rem;
+          margin-top: 0.5rem;
         }
         .content-container {
           max-width: 600px;
           margin: 0 auto;
+          min-height: 400px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
         }
         .result-view, .error-view {
           text-align: center;
@@ -85,46 +98,31 @@ export default function Home() {
           padding: 2.5rem;
           border-radius: 12px;
           border: 1px solid var(--coffee-light);
-          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+          box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+        }
+        .result-footer {
           display: flex;
           flex-direction: column;
-          gap: 1.5rem;
           align-items: center;
-        }
-        .image-container {
-          position: relative;
-          width: 300px;
-          height: 300px;
-          border-radius: 50%;
-          overflow: hidden;
-          border: 8px solid var(--coffee-dark);
-          box-shadow: inset 0 0 20px rgba(0,0,0,0.2);
-        }
-        .foam-art {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .cup-overlay {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: radial-gradient(circle, transparent 60%, rgba(255,255,255,0.2) 100%);
-          pointer-events: none;
+          gap: 1.5rem;
+          margin-top: 1rem;
         }
         .order-id {
           font-family: monospace;
-          background: #eee;
+          background: var(--background);
           padding: 0.5rem 1rem;
           border-radius: 4px;
           font-size: 0.9rem;
+          border: 1px solid var(--coffee-light);
+        }
+        .error-msg {
+          color: var(--google-red);
+          margin-bottom: 1.5rem;
         }
         .secondary-btn {
           background-color: var(--background);
           color: var(--coffee-dark);
-          padding: 0.8rem 1.5rem;
+          padding: 0.8rem 2rem;
           border: 1px solid var(--coffee-light);
           border-radius: 8px;
           font-weight: 600;
@@ -133,6 +131,7 @@ export default function Home() {
         }
         .secondary-btn:hover {
           background-color: var(--coffee-light);
+          transform: translateY(-2px);
         }
       `}</style>
     </main>
