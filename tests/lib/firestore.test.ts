@@ -3,14 +3,14 @@ import { saveOrder } from '../../lib/firestore';
 
 // Mock Firestore SDK
 vi.mock('@google-cloud/firestore', () => {
-  const DocumentReference = vi.fn().mockImplementation(function (this: any) {
+  const DocumentReference = vi.fn().mockImplementation(function (this: { id: string }) {
     this.id = 'test-doc-id';
   });
-  const CollectionReference = vi.fn().mockImplementation(function (this: any) {
-    this.add = vi.fn().mockResolvedValue(new (DocumentReference as any)());
+  const CollectionReference = vi.fn().mockImplementation(function (this: { add: (data: unknown) => Promise<unknown> }) {
+    this.add = vi.fn().mockResolvedValue(new (DocumentReference as unknown as { new (): unknown })());
   });
-  const Firestore = vi.fn().mockImplementation(function (this: any) {
-    this.collection = vi.fn().mockReturnValue(new (CollectionReference as any)());
+  const Firestore = vi.fn().mockImplementation(function (this: { collection: (name: string) => unknown }) {
+    this.collection = vi.fn().mockReturnValue(new (CollectionReference as unknown as { new (): unknown })());
   });
   return { Firestore };
 });

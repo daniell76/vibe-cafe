@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 
 interface Order {
   id: string;
@@ -15,7 +16,7 @@ export default function OrderHistory() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       const response = await fetch('/api/orders');
       if (response.ok) {
@@ -27,13 +28,16 @@ export default function OrderHistory() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchOrders();
+    const timeout = setTimeout(fetchOrders, 0);
     const interval = setInterval(fetchOrders, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchOrders]);
 
   if (isLoading && orders.length === 0) {
     return <div className="loading">Loading history...</div>;
@@ -46,12 +50,12 @@ export default function OrderHistory() {
         {orders.map((order) => (
           <div key={order.id} className="order-card">
             <div className="order-thumb">
-              <img src={order.imageUrl} alt={order.name} />
+              <Image src={order.imageUrl} alt={order.name} width={80} height={80} unoptimized />
             </div>
             <div className="order-info">
               <h3>{order.name}</h3>
               <p className="order-type">{order.coffeeOrder}</p>
-              <p className="order-place">"{order.happyPlace}"</p>
+              <p className="order-place">&quot;{order.happyPlace}&quot;</p>
             </div>
           </div>
         ))}

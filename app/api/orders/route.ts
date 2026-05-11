@@ -5,8 +5,9 @@ export async function GET() {
   try {
     const orders = await getOrders(20);
     return NextResponse.json(orders);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
     console.error('Fetch orders error:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

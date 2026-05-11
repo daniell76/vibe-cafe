@@ -3,7 +3,7 @@ import { optimizePrompt, generateFoamArt } from '../../lib/vertex-ai';
 
 // Mock the Vertex AI SDK
 vi.mock('@google-cloud/vertexai', () => {
-  const VertexAI = vi.fn().mockImplementation(function (this: any) {
+  const VertexAI = vi.fn().mockImplementation(function (this: { getGenerativeModel: (options: unknown) => unknown }) {
     this.getGenerativeModel = vi.fn().mockReturnValue({
       generateContent: vi.fn().mockResolvedValue({
         response: {

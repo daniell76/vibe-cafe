@@ -1,5 +1,7 @@
 'use client';
 
+import Image from 'next/image';
+
 interface FoamPreviewProps {
   imageUrl: string;
 }
@@ -9,7 +11,7 @@ export default function FoamPreview({ imageUrl }: FoamPreviewProps) {
     <div className="foam-preview">
       <div className="cup-outer">
         <div className="cup-inner">
-          <img src={imageUrl} alt="Coffee Foam Art" className="foam-art" />
+          <Image src={imageUrl} alt="Coffee Foam Art" className="foam-art" width={280} height={280} unoptimized />
           <div className="froth-texture"></div>
         </div>
       </div>

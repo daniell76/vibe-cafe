@@ -34,8 +34,9 @@ export default function OrderForm({ onOrderStarted, onOrderComplete, onError }: 
 
       const data = await response.json();
       onOrderComplete(data);
-    } catch (err: any) {
-      onError(err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unknown error occurred';
+      onError(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -67,7 +68,7 @@ export default function OrderForm({ onOrderStarted, onOrderComplete, onError }: 
       </div>
 
       <div className="form-group">
-        <label htmlFor="happyPlace">What's your "happy place"?</label>
+        <label htmlFor="happyPlace">What&apos;s your &quot;happy place&quot;?</label>
         <textarea
           id="happyPlace"
           value={happyPlace}

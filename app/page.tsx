@@ -38,7 +38,7 @@ export default function Home() {
     <main>
       <header>
         <h1>Google Cloud Vibe Cafe</h1>
-        <p className="subtitle">"Cloud in your Coffee" – Generate AI coffee foam art with Gemini 3.1 Flash.</p>
+        <p className="subtitle">&quot;Cloud in your Coffee&quot; – Generate AI coffee foam art with Gemini 3.1 Flash.</p>
       </header>
 
       <div className="content-container">

@@ -30,8 +30,9 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ orderId, imageUrl }, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
     console.error('Order processing error:', error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

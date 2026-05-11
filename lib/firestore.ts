@@ -22,7 +22,7 @@ export async function saveOrder(orderData: OrderData): Promise<string> {
   return docRef.id;
 }
 
-export async function getOrders(limit = 10): Promise<any[]> {
+export async function getOrders(limit = 10): Promise<Record<string, unknown>[]> {
   const collection = firestore.collection(collectionName);
   const snapshot = await collection.orderBy('createdAt', 'desc').limit(limit).get();
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
