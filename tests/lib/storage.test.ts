@@ -18,13 +18,12 @@ vi.mock('@google-cloud/storage', () => {
 
 describe('Storage Service', () => {
   describe('uploadToGCS', () => {
-    it('should upload a buffer and return the public URL', async () => {
+    it('should upload a buffer and return the proxy URL', async () => {
       const buffer = Buffer.from('mock-image-data');
       const filename = 'test-image.png';
       const url = await uploadToGCS(buffer, filename);
       
-      expect(url).toContain('storage.googleapis.com');
-      expect(url).toContain(filename);
+      expect(url).toBe(`/api/image/${filename}`);
     });
   });
 });

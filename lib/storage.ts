@@ -13,8 +13,7 @@ export async function uploadToGCS(buffer: Buffer, filename: string): Promise<str
     metadata: {
       contentType: 'image/png',
     },
-    public: true,
   });
 
-  return file.publicUrl();
+  return `/api/image/${filename}`;
 }

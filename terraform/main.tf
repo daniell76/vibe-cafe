@@ -33,20 +33,8 @@ resource "google_storage_bucket" "vibe_cafe_images" {
   force_destroy = true
 
   uniform_bucket_level_access = true
+  # public_access_prevention is enforced by org policy, so we'll proxy images via backend
 }
 
-# 3. Make Bucket Publicly Readable
-resource "google_storage_bucket_iam_member" "public_rule" {
-  bucket = google_storage_bucket.vibe_cafe_images.name
-  role   = "roles/storage.objectViewer"
-  member = "allUsers"
-}
-
-# 4. Firestore Database (Native Mode)
-resource "google_firestore_database" "database" {
-  name        = "(default)"
-  location_id = var.region
-  type        = "FIRESTORE_NATIVE"
-
-  depends_on = [google_project_service.firestore]
-}
+# 3. Firestore Database (Using existing (default) database)
+# Removed from TF because (default) already exists in this project.
