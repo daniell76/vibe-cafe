@@ -16,6 +16,9 @@ interface Order {
 export default function ManagementPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -46,6 +49,52 @@ export default function ManagementPage() {
     }
   };
 
+  const handleSelectOne = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === orders.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(orders.map(o => o.id)));
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} order(s)? This will also remove the images from Cloud Storage.`)) return;
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch('/api/orders/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Delete results:', result);
+        // Refresh list and clear selection
+        await fetchOrders();
+        setSelectedIds(new Set());
+      } else {
+        alert('Failed to delete some orders.');
+      }
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   useEffect(() => {
     const timeout = setTimeout(fetchOrders, 0);
     const interval = setInterval(fetchOrders, 10000); // More frequent for management
@@ -62,7 +111,18 @@ export default function ManagementPage() {
   return (
     <main className="management">
       <header>
-        <h1>Vibe Cafe Management</h1>
+        <div className="header-top">
+          <h1>Vibe Cafe Management</h1>
+          {selectedIds.size > 0 && (
+            <button 
+              className="delete-btn" 
+              onClick={handleDeleteSelected}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : `Delete Selected (${selectedIds.size})`}
+            </button>
+          )}
+        </div>
         <p>Manage guest orders and fulfillment status.</p>
       </header>
 
@@ -70,6 +130,13 @@ export default function ManagementPage() {
         <table className="orders-table">
           <thead>
             <tr>
+              <th>
+                <input 
+                  type="checkbox" 
+                  checked={orders.length > 0 && selectedIds.size === orders.length}
+                  onChange={handleSelectAll}
+                />
+              </th>
               <th>Time</th>
               <th>Guest</th>
               <th>Order</th>
@@ -81,13 +148,20 @@ export default function ManagementPage() {
           </thead>
           <tbody>
             {orders.map((order) => (
-              <tr key={order.id} className={`status-${order.status}`}>
+              <tr key={order.id} className={`status-${order.status} ${selectedIds.has(order.id) ? 'selected' : ''}`}>
+                <td>
+                  <input 
+                    type="checkbox" 
+                    checked={selectedIds.has(order.id)}
+                    onChange={() => handleSelectOne(order.id)}
+                  />
+                </td>
                 <td>{new Date(order.createdAt).toLocaleTimeString()}</td>
                 <td className="guest-name">{order.name}</td>
                 <td className="coffee-type">{order.coffeeOrder}</td>
                 <td className="happy-place"><i>&quot;{order.happyPlace}&quot;</i></td>
                 <td>
-                  <div className="art-preview">
+                  <div className="art-preview" onClick={() => setSelectedImage(order.imageUrl)}>
                     <Image src={order.imageUrl} alt={order.name} width={60} height={60} unoptimized />
                   </div>
                 </td>
@@ -112,6 +186,17 @@ export default function ManagementPage() {
         </table>
       </div>
 
+      {selectedImage && (
+        <div className="modal-overlay" onClick={() => setSelectedImage(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="close-modal" onClick={() => setSelectedImage(null)}>&times;</button>
+            <div className="large-art">
+              <Image src={selectedImage} alt="Large Foam Art" width={600} height={600} unoptimized />
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
         .management {
           max-width: 1200px;
@@ -122,6 +207,30 @@ export default function ManagementPage() {
           margin-bottom: 2rem;
           border-bottom: 2px solid var(--coffee-light);
           padding-bottom: 1rem;
+        }
+        .header-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 0.5rem;
+        }
+        .delete-btn {
+          background-color: var(--google-red);
+          color: white;
+          border: none;
+          padding: 0.75rem 1.5rem;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .delete-btn:hover:not(:disabled) {
+          background-color: #d32f2f;
+          transform: translateY(-2px);
+        }
+        .delete-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         .orders-table-container {
           background: white;
@@ -145,8 +254,10 @@ export default function ManagementPage() {
           border-bottom: 1px solid var(--coffee-light);
           vertical-align: middle;
         }
+        tr.selected {
+          background-color: #fff9c4;
+        }
         .status-completed {
-          background-color: #f8fff9;
           opacity: 0.8;
         }
         .art-preview {
@@ -155,6 +266,64 @@ export default function ManagementPage() {
           border-radius: 50%;
           overflow: hidden;
           border: 2px solid var(--coffee-dark);
+          cursor: zoom-in;
+          transition: transform 0.2s;
+        }
+        .art-preview:hover {
+          transform: scale(1.1);
+        }
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0,0,0,0.85);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          backdrop-filter: blur(5px);
+        }
+        .modal-content {
+          position: relative;
+          background: white;
+          padding: 1rem;
+          border-radius: 20px;
+          box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+          max-width: 90vw;
+          max-height: 90vh;
+        }
+        .large-art {
+          width: 600px;
+          height: 600px;
+          max-width: 80vw;
+          max-height: 80vh;
+          border-radius: 50%;
+          overflow: hidden;
+          border: 12px solid var(--coffee-dark);
+          box-shadow: inset 0 0 30px rgba(0,0,0,0.3);
+        }
+        .large-art :global(img) {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .close-modal {
+          position: absolute;
+          top: -20px;
+          right: -20px;
+          background: var(--google-red);
+          color: white;
+          border: none;
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          font-size: 2rem;
+          line-height: 1;
+          cursor: pointer;
+          box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+          z-index: 1001;
         }
         .status-badge {
           padding: 0.25rem 0.75rem;

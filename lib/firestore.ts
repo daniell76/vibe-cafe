@@ -37,6 +37,17 @@ export async function updateOrderStatus(orderId: string, status: string): Promis
   await collection.doc(orderId).update({ status });
 }
 
+export async function deleteOrder(orderId: string): Promise<void> {
+  const collection = firestore.collection(collectionName);
+  await collection.doc(orderId).delete();
+}
+
+export async function getOrder(orderId: string): Promise<Record<string, unknown> | null> {
+  const collection = firestore.collection(collectionName);
+  const doc = await collection.doc(orderId).get();
+  return doc.exists ? { id: doc.id, ...doc.data() } : null;
+}
+
 export async function getOrders(limit = 10): Promise<Record<string, unknown>[]> {
   const collection = firestore.collection(collectionName);
   // Temporarily removing orderBy to check if it's causing the "undefined" error (missing index)

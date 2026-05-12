@@ -17,3 +17,12 @@ export async function uploadToGCS(buffer: Buffer, filename: string): Promise<str
 
   return `/api/image/${filename}`;
 }
+
+export async function deleteFromGCS(filename: string): Promise<void> {
+  const bucket = storage.bucket(bucketName);
+  const file = bucket.file(filename);
+  const [exists] = await file.exists();
+  if (exists) {
+    await file.delete();
+  }
+}
