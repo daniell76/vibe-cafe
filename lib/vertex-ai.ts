@@ -12,20 +12,20 @@ const client = new GoogleGenAI({
 
 // Verified Model IDs for May 2026
 const TEXT_MODEL = 'gemini-3.1-flash-lite';
-const IMAGE_MODEL = 'gemini-3.1-flash-image-preview'; // Corrected with -preview
+const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 
-export async function optimizePrompt(happyPlace: string): Promise<string> {
+export async function optimizePrompt(happyPlace: string, customInstructions?: string): Promise<string> {
+  const instructions = customInstructions || `Rewrite the following "happy place" description into a detailed and creative prompt for generating coffee foam art. 
+The output should be a single sentence describing a simple, abstracted, high-contrast design suitable for printing on coffee foam.
+Avoid fine details as the foam machine cannot render them cleanly.
+Focus only on the main subject. Do NOT include a mug, cup, or any background.`;
+
   const response = await client.models.generateContent({
     model: TEXT_MODEL,
     contents: [{ 
       role: 'user', 
       parts: [{ 
-        text: `Rewrite the following "happy place" description into a detailed and creative prompt for generating coffee foam art. 
-        The output should be a single sentence describing a high-contrast, visually appealing image that can be printed on coffee foam.
-        
-        Happy Place: "${happyPlace}"
-        
-        Creative Coffee Art Prompt:` 
+        text: `${instructions}\n\nHappy Place: "${happyPlace}"\n\nCreative Coffee Art Prompt:` 
       }] 
     }],
   });
@@ -33,14 +33,19 @@ export async function optimizePrompt(happyPlace: string): Promise<string> {
   return response.text || 'A beautiful coffee foam art based on your happy place';
 }
 
-export async function generateFoamArt(prompt: string): Promise<Buffer> {
+export async function generateFoamArt(prompt: string, templateOverride?: string): Promise<Buffer> {
   try {
+    const defaultTemplate = `${prompt}. High-contrast sepia color pattern, simple abstract minimalist style optimized for foam printing, minimal fine details. Isolated subject on pure white background, 1:1 aspect ratio square dimension. Strictly no mug, no cup.`;
+    const finalPromptText = templateOverride 
+      ? templateOverride.replace('{happyPlace}', prompt).replace('{prompt}', prompt)
+      : defaultTemplate;
+
     // 1. Attempt image generation with the requested model
     const response = await client.models.generateContent({
       model: IMAGE_MODEL,
       contents: [{ 
         role: 'user', 
-        parts: [{ text: `${prompt}. High-contrast, black and white coffee foam art style.` }] 
+        parts: [{ text: finalPromptText }] 
       }],
     });
 
