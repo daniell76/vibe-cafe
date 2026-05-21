@@ -1,8 +1,9 @@
 terraform {
-  backend "gcs" {
-    bucket = "cs-poc-r09bfysmbhuoftvjja2mxk2_tfstate"
-    prefix = "vibe-cafe"
-  }
+  # Backend bucket + prefix are supplied via backend.hcl (gitignored).
+  # Initialise with:  terraform init -backend-config=backend.hcl
+  # See backend.hcl.example for the template. Run scripts/setup.sh to generate
+  # backend.hcl automatically.
+  backend "gcs" {}
 }
 
 provider "google" {
@@ -50,7 +51,15 @@ resource "google_cloud_run_v2_service" "vibe_cafe" {
   template {
     containers {
       image = var.container_image
-      
+
+      # Keep CPU allocated even between requests so fire-and-forget background
+      # work (e.g. the 4K vibe-image generation kicked off after the preview
+      # response) reliably runs to completion.
+      resources {
+        cpu_idle          = false
+        startup_cpu_boost = true
+      }
+
       env {
         name  = "GOOGLE_CLOUD_PROJECT"
         value = var.project_id

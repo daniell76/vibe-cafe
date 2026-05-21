@@ -1,139 +1,222 @@
 'use client';
 
-import { useState } from 'react';
-import OrderForm from '@/components/OrderForm';
-import VibeLoader from '@/components/VibeLoader';
-import FoamPreview from '@/components/FoamPreview';
-import OrderHistory from '@/components/OrderHistory';
+import { useEffect, useState } from 'react';
+import CustomizeStep from '@/components/ordering/CustomizeStep';
+import ArtSelectStep from '@/components/ordering/ArtSelectStep';
+import ReviewStep from '@/components/ordering/ReviewStep';
+import ConfirmedStep from '@/components/ordering/ConfirmedStep';
+import { ArtOption, DEFAULT_ORDER_SETTINGS, OrderDraft, OrderSettings } from '@/components/ordering/types';
 
-type AppState = 'IDLE' | 'PROCESSING' | 'SUCCESS' | 'ERROR';
+type Step = 'customize' | 'art' | 'review' | 'confirmed' | 'error';
 
-export default function Home() {
-  const [state, setState] = useState<AppState>('IDLE');
-  const [result, setResult] = useState<{ imageUrl: string; orderId: string } | null>(null);
+const EMPTY_DRAFT: OrderDraft = {
+  name: '',
+  coffeeOrder: 'Latte',
+  milk: 'None',
+  addition: 'None',
+  extraShots: 0,
+  happyPlace: '',
+};
+
+// Pick the operator-configured default if it's still in the menu;
+// otherwise fall back to looking for "None"; otherwise the first item.
+function resolveDefault(items: string[] | undefined, configured: string | undefined): string {
+  const list = items ?? [];
+  if (configured && list.includes(configured)) return configured;
+  return list.find((f) => f.toLowerCase() === 'none') ?? list[0] ?? configured ?? '';
+}
+
+export default function OrderingPage() {
+  const [step, setStep] = useState<Step>('customize');
+  const [draft, setDraft] = useState<OrderDraft>(EMPTY_DRAFT);
+  const [settings, setSettings] = useState<OrderSettings>(DEFAULT_ORDER_SETTINGS);
+  const [artOptions, setArtOptions] = useState<ArtOption[]>([]);
+  const [vibeImageUrl, setVibeImageUrl] = useState<string | null>(null);
+  const [selectedArtId, setSelectedArtId] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmedOrderNumber, setConfirmedOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleOrderStarted = () => {
-    setState('PROCESSING');
+  useEffect(() => {
+    fetch('/api/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        const drinks = data.drinks?.length ? data.drinks : DEFAULT_ORDER_SETTINGS.drinks;
+        const milks = data.milks?.length ? data.milks : DEFAULT_ORDER_SETTINGS.milks;
+        const flavors = data.flavors?.length ? data.flavors : DEFAULT_ORDER_SETTINGS.flavors;
+        setSettings({
+          appName: data.appName ?? DEFAULT_ORDER_SETTINGS.appName,
+          tagline: data.tagline ?? DEFAULT_ORDER_SETTINGS.tagline,
+          drinks,
+          milks,
+          flavors,
+          instructions: data.instructions ?? DEFAULT_ORDER_SETTINGS.instructions,
+          defaultDrink: data.defaultDrink ?? DEFAULT_ORDER_SETTINGS.defaultDrink,
+          defaultMilk: data.defaultMilk ?? DEFAULT_ORDER_SETTINGS.defaultMilk,
+          defaultAddition: data.defaultAddition ?? DEFAULT_ORDER_SETTINGS.defaultAddition,
+        });
+        setDraft((prev) => ({
+          ...prev,
+          coffeeOrder: resolveDefault(drinks, data.defaultDrink),
+          milk: resolveDefault(milks, data.defaultMilk),
+          addition: resolveDefault(flavors, data.defaultAddition),
+        }));
+      })
+      .catch(() => {});
+  }, []);
+
+  const fetchPreviews = async () => {
+    setIsGenerating(true);
+    // Stash the URLs we're about to throw away so submit can ask the backend
+    // to clean them up from GCS even after a regenerate.
+    const orphans = artOptions.map((o) => o.imageUrl);
+    if (vibeImageUrl) orphans.push(vibeImageUrl);
+    setArtOptions([]);
+    setVibeImageUrl(null);
+    setSelectedArtId(null);
     setError(null);
+    try {
+      const res = await fetch('/api/order/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ happyPlace: draft.happyPlace }),
+      });
+      if (!res.ok) throw new Error('Failed to generate art previews');
+      const data = await res.json();
+      setArtOptions(data.options || []);
+      setVibeImageUrl(data.vibeImageUrl || null);
+      if (data.options?.[0]) setSelectedArtId(data.options[0].id);
+      // Best-effort cleanup of the previous round's orphans.
+      if (orphans.length > 0) {
+        fetch('/api/order/preview/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: orphans }),
+        }).catch(() => {});
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setError(msg);
+      setStep('error');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
-  const handleOrderComplete = (data: { imageUrl: string; orderId: string }) => {
-    setResult(data);
-    setState('SUCCESS');
+  const goToArt = async () => {
+    setStep('art');
+    await fetchPreviews();
   };
 
-  const handleError = (msg: string) => {
-    setError(msg);
-    setState('ERROR');
+  const regenerate = async () => {
+    await fetchPreviews();
+  };
+
+  const submitOrder = async () => {
+    const selected = artOptions.find((o) => o.id === selectedArtId);
+    if (!selected) return;
+    const unpicked = artOptions.filter((o) => o.id !== selectedArtId).map((o) => o.imageUrl);
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: draft.name,
+          coffeeOrder: draft.coffeeOrder,
+          milk: draft.milk,
+          additions: draft.addition ? [draft.addition] : [],
+          extraShots: draft.extraShots ?? 0,
+          happyPlace: draft.happyPlace,
+          imageUrl: selected.imageUrl,
+          vibeImageUrl: vibeImageUrl || undefined,
+          unpickedImageUrls: unpicked,
+          artLabel: selected.label,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to submit order');
+      const data = await res.json();
+      setConfirmedOrderNumber(data.orderNumber ?? 0);
+      setStep('confirmed');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setError(msg);
+      setStep('error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const reset = () => {
-    setState('IDLE');
-    setResult(null);
+    setDraft({
+      ...EMPTY_DRAFT,
+      coffeeOrder: resolveDefault(settings.drinks, settings.defaultDrink),
+      milk: resolveDefault(settings.milks, settings.defaultMilk),
+      addition: resolveDefault(settings.flavors, settings.defaultAddition),
+    });
+    setArtOptions([]);
+    setVibeImageUrl(null);
+    setSelectedArtId(null);
+    setConfirmedOrderNumber(null);
     setError(null);
+    setStep('customize');
   };
 
   return (
-    <main>
-      <header>
-        <h1>Google Cloud Vibe Cafe</h1>
-        <p className="subtitle">&quot;Cloud in your Coffee&quot; – Generate AI coffee foam art with Gemini 3.1 Flash.</p>
-      </header>
+    <main className="page">
+      {step === 'customize' && (
+        <CustomizeStep draft={draft} settings={settings} onChange={setDraft} onNext={goToArt} />
+      )}
 
-      <div className="content-container">
-        {state === 'IDLE' && (
-          <OrderForm 
-            onOrderStarted={handleOrderStarted} 
-            onOrderComplete={handleOrderComplete} 
-            onError={handleError} 
-          />
-        )}
+      {step === 'art' && (
+        <ArtSelectStep
+          options={artOptions}
+          selectedId={selectedArtId}
+          isLoading={isGenerating}
+          settings={settings}
+          onSelect={setSelectedArtId}
+          onBack={() => setStep('customize')}
+          onNext={() => setStep('review')}
+          onRegenerate={regenerate}
+        />
+      )}
 
-        {state === 'PROCESSING' && <VibeLoader />}
+      {step === 'review' && selectedArtId && (
+        <ReviewStep
+          draft={draft}
+          selectedArt={artOptions.find((o) => o.id === selectedArtId)!}
+          isSubmitting={isSubmitting}
+          onEdit={() => setStep('customize')}
+          onSubmit={submitOrder}
+        />
+      )}
 
-        {state === 'SUCCESS' && result && (
-          <div className="result-view">
-            <h2>Your Coffee Art is Ready!</h2>
-            <FoamPreview imageUrl={result.imageUrl} />
-            <div className="result-footer">
-              <p className="order-id">Order ID: {result.orderId}</p>
-              <button onClick={reset} className="secondary-btn">New Order</button>
-            </div>
-          </div>
-        )}
+      {step === 'confirmed' && confirmedOrderNumber !== null && (
+        <ConfirmedStep orderNumber={confirmedOrderNumber} onNewOrder={reset} />
+      )}
 
-        {state === 'ERROR' && (
-          <div className="error-view">
-            <h2>Something went wrong</h2>
-            <p className="error-msg">{error}</p>
-            <button onClick={reset} className="secondary-btn">Try Again</button>
-          </div>
-        )}
-      </div>
-
-      <OrderHistory />
-
-      <style jsx>{`
-        header {
-          text-align: center;
-          margin-bottom: 4rem;
-        }
-        .subtitle {
-          color: var(--coffee-medium);
-          font-size: 1.2rem;
-          margin-top: 0.5rem;
-        }
-        .content-container {
-          max-width: 600px;
-          margin: 0 auto;
-          min-height: 400px;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-        }
-        .result-view, .error-view {
-          text-align: center;
-          background: var(--card-bg);
-          padding: 2.5rem;
-          border-radius: 12px;
-          border: 1px solid var(--coffee-light);
-          box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-        }
-        .result-footer {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 1.5rem;
-          margin-top: 1rem;
-        }
-        .order-id {
-          font-family: monospace;
-          background: var(--background);
-          padding: 0.5rem 1rem;
-          border-radius: 4px;
-          font-size: 0.9rem;
-          border: 1px solid var(--coffee-light);
-        }
-        .error-msg {
-          color: var(--google-red);
-          margin-bottom: 1.5rem;
-        }
-        .secondary-btn {
-          background-color: var(--background);
-          color: var(--coffee-dark);
-          padding: 0.8rem 2rem;
-          border: 1px solid var(--coffee-light);
-          border-radius: 8px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        .secondary-btn:hover {
-          background-color: var(--coffee-light);
-          transform: translateY(-2px);
-        }
-      `}</style>
+      {step === 'error' && (
+        <div className="gradient-card error">
+          <h2>Something went wrong</h2>
+          <p>{error}</p>
+          <button className="btn btn-primary" onClick={reset}>Start over</button>
+          <style jsx>{`
+            .error {
+              max-width: 480px;
+              margin: 0 auto;
+              text-align: center;
+              padding: 2.5rem;
+              display: flex;
+              flex-direction: column;
+              gap: 1rem;
+              align-items: center;
+            }
+          `}</style>
+        </div>
+      )}
     </main>
   );
 }

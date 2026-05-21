@@ -1,44 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { optimizePrompt, generateFoamArt } from '@/lib/vertex-ai';
-import { uploadToGCS } from '@/lib/storage';
+import { uploadToGCS, deleteFromGCS } from '@/lib/storage';
 import { saveOrder, getNextOrderNumber, getSettings } from '@/lib/firestore';
+
+const PROXY_PREFIX = '/api/image/';
+
+function extractGcsName(proxyUrl: string | undefined): string | null {
+  if (!proxyUrl) return null;
+  const idx = proxyUrl.indexOf(PROXY_PREFIX);
+  if (idx === -1) return null;
+  const tail = proxyUrl.slice(idx + PROXY_PREFIX.length);
+  try {
+    return decodeURIComponent(tail);
+  } catch {
+    return tail;
+  }
+}
+
+async function cleanupUnpicked(urls: string[] | undefined) {
+  if (!Array.isArray(urls) || urls.length === 0) return;
+  await Promise.allSettled(
+    urls
+      .map(extractGcsName)
+      .filter((n): n is string => !!n)
+      .map((name) => deleteFromGCS(name)),
+  );
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { name, coffeeOrder, milk, flavor, happyPlace } = await req.json();
+    const body = await req.json();
+    const {
+      name,
+      coffeeOrder,
+      milk,
+      flavor,
+      additions,
+      extraShots,
+      happyPlace,
+      imageUrl: selectedImageUrl,
+      vibeImageUrl,
+      unpickedImageUrls,
+      artLabel,
+    } = body;
 
     if (!name || !coffeeOrder || !happyPlace) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const settings = await getSettings().catch(() => null);
-    const customPromptOverride = settings?.promptTemplate;
+    let imageUrl = selectedImageUrl as string | undefined;
 
-    // 1. Optimize Prompt
-    const optimizedPrompt = await optimizePrompt(happyPlace);
+    // Legacy path: no preselected art — generate on the fly.
+    if (!imageUrl) {
+      const settings = await getSettings().catch(() => null);
+      const customPromptOverride = settings?.promptTemplate;
+      const optimizedPrompt = await optimizePrompt(happyPlace);
+      const imageBuffer = await generateFoamArt(optimizedPrompt, customPromptOverride || undefined);
+      const filename = `order-${Date.now()}.png`;
+      imageUrl = await uploadToGCS(imageBuffer, filename);
+    }
 
-    // 2. Generate Image
-    const imageBuffer = await generateFoamArt(optimizedPrompt, customPromptOverride || undefined);
-
-    // 3. Upload to GCS
-    const filename = `order-${Date.now()}.png`;
-    const imageUrl = await uploadToGCS(imageBuffer, filename);
-
-    // 4. Generate Short Sequence Number
     const orderNumber = await getNextOrderNumber();
 
-    // 5. Save to Firestore
     const orderId = await saveOrder({
       name,
       coffeeOrder,
       milk: milk || 'None',
       flavor: flavor || 'None',
+      additions: Array.isArray(additions) ? additions : undefined,
+      extraShots: typeof extraShots === 'number' && extraShots > 0 ? extraShots : undefined,
+      artLabel: artLabel || undefined,
       happyPlace,
-      imageUrl,
+      imageUrl: imageUrl!,
+      vibeImageUrl: vibeImageUrl || undefined,
       orderNumber,
     });
 
-    return NextResponse.json({ orderId, orderNumber, imageUrl }, { status: 201 });
+    // Best-effort cleanup of the 3 unpicked preview foams.
+    cleanupUnpicked(unpickedImageUrls).catch((err) => console.warn('Cleanup failed:', err));
+
+    return NextResponse.json({ orderId, orderNumber, imageUrl, vibeImageUrl }, { status: 201 });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
     console.error('Order processing error:', error);

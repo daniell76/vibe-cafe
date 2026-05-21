@@ -12,7 +12,9 @@ vi.mock('../../lib/storage', () => ({
 }));
 
 vi.mock('../../lib/firestore', () => ({
-  saveOrder: vi.fn().mockResolvedValue('test-order-id')
+  saveOrder: vi.fn().mockResolvedValue('test-order-id'),
+  getSettings: vi.fn().mockResolvedValue(null),
+  getNextOrderNumber: vi.fn().mockResolvedValue(42)
 }));
 
 describe('Order API', () => {

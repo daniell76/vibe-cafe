@@ -6,14 +6,26 @@ const bucketName = process.env.VIBE_CAFE_BUCKET || 'vibe-cafe-images';
 
 const storage = new Storage({ projectId: project });
 
+function inferMime(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/png';
+}
+
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ filename: string }> }
+  { params }: { params: Promise<{ filename: string[] }> },
 ) {
   try {
     const { filename } = await params;
+    if (!filename || filename.length === 0) {
+      return new NextResponse('Missing filename', { status: 400 });
+    }
+    const objectName = filename.map((seg) => decodeURIComponent(seg)).join('/');
+
     const bucket = storage.bucket(bucketName);
-    const file = bucket.file(filename);
+    const file = bucket.file(objectName);
 
     const [exists] = await file.exists();
     if (!exists) {
@@ -24,7 +36,7 @@ export async function GET(
 
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
-        'Content-Type': 'image/png',
+        'Content-Type': inferMime(objectName),
         'Cache-Control': 'public, max-age=31536000, immutable',
       },
     });

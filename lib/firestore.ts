@@ -17,14 +17,23 @@ export interface OrderData {
   coffeeOrder: string;
   milk?: string;
   flavor?: string;
+  additions?: string[];
+  extraShots?: number;
+  artLabel?: string;
   happyPlace: string;
   imageUrl: string;
+  vibeImageUrl?: string;
   status?: string;
   orderNumber?: number;
   createdAt?: string;
 }
 
+export type VibeImageAspect = '16:9' | '4:3';
+
 export interface AppSettings {
+  appName: string;
+  tagline: string;
+  systemPrompt: string;
   drinks: string[];
   milks: string[];
   flavors: string[];
@@ -34,28 +43,61 @@ export interface AppSettings {
     step3: string;
   };
   promptTemplate: string;
+  vibeImageAspect: VibeImageAspect;
+  vibePromptTemplate: string;
+  defaultDrink: string;
+  defaultMilk: string;
+  defaultAddition: string;
 }
 
-const DEFAULT_SETTINGS: AppSettings = {
-  drinks: ['Latte', 'Cappuccino', 'Flat White', 'Americano', 'Mocha'],
+export const DEFAULT_SETTINGS: AppSettings = {
+  appName: 'Vibe Café',
+  tagline: 'Experience the Future of Coffee',
+  systemPrompt:
+    'You are the barista AI for Vibe Café. Your goal is to guide users through selecting the perfect coffee blend based on their mood.',
+  drinks: ['Espresso', 'Americano', 'Latte', 'Cappuccino', 'Flat White', 'Cortado', 'Macchiato', 'Mocha', 'Cold Brew'],
   milks: ['Regular Milk', 'Oat Milk', 'Almond Milk', 'Soy Milk', 'None'],
-  flavors: ['Vanilla', 'Caramel', 'Hazelnut', 'None'],
+  flavors: ['Vanilla', 'Caramel', 'Hazelnut', 'Sugar Free', 'None'],
   instructions: {
-    step1: 'Select your drink base',
-    step2: 'Choose milk & flavoring',
-    step3: 'Describe your happy place'
+    step1: 'Personalise your perfect brew',
+    step2: 'Choose a generative pattern for your latte art. Our barista bots will precision-etch this design using micro-foam projection.',
+    step3: 'Please review your selections before finalising.',
   },
-  promptTemplate: '{happyPlace}. High-contrast sepia color pattern, simple abstract minimalist style optimized for foam printing, minimal fine details. Isolated subject on pure white background, 1:1 aspect ratio square dimension. Strictly no mug, no cup.'
+  promptTemplate:
+    'A flat, single-layer high-contrast sepia-on-white stencil illustration of {happyPlace}. ' +
+    'Render the subject as a single isolated shape — or a small group of clearly disconnected shapes — drifting on an empty pure-white square canvas. ' +
+    'The subject occupies roughly the middle 50% of the canvas. ' +
+    'The entire outer 25% margin on every side — and especially all four corners — is uniform RGB(255,255,255) pure-white empty pixels with no marks, no shading, no gradient, no texture. ' +
+    'Absolutely nothing surrounds the subject: no enclosing shape, no border, no frame, no medallion, no badge, no emblem, no coin, no disc, no plate, no roundel, no halo, no aura, no glow, no vignette, no decorative scrollwork, no leaves around the subject, no background scenery, no coffee cup, no saucer. ' +
+    'Clean bold edges, highly graphic, no 3D shading, no photorealism.',
+  vibeImageAspect: '16:9',
+  vibePromptTemplate:
+    'A stunning, delightful, magazine-quality photograph capturing the essence of: {happyPlace}. ' +
+    'Cinematic composition, warm and inviting natural lighting, rich texture and depth, professional photography, ' +
+    'soothing and aesthetic atmosphere, sharp focus, full-bleed wallpaper-ready framing.\n\n' +
+    'People rule: include human figures ONLY when the description explicitly is about a person, a named individual, a group of people, ' +
+    'or when it explicitly mentions a crowd, gathering, festival, parade, audience, concert, wedding, party, dance, performance, ' +
+    'busy/bustling/crowded scene, shoppers, market vendors, players, dancers, performers, or similar group activity. ' +
+    'For all other subjects — quiet places, landmarks, objects, plants, food, animals, vehicles, scenery, still life — render the scene ' +
+    'completely free of incidental human figures: no bystanders, no pedestrians, no tiny crowd figures in the background, no silhouettes of people, no faces. ' +
+    'The photograph should look as if captured during a perfect, deliberate moment.\n\n' +
+    'No text, no watermark.',
+  defaultDrink: 'Latte',
+  defaultMilk: 'None',
+  defaultAddition: 'None',
 };
 
 export async function saveOrder(orderData: OrderData): Promise<string> {
   const collection = firestore.collection(collectionName);
-  const docRef = await collection.add({
+  const payload: Record<string, unknown> = {
     ...orderData,
     status: orderData.status || 'pending',
     createdAt: orderData.createdAt || new Date().toISOString(),
-  });
-
+  };
+  for (const k of Object.keys(payload)) {
+    if (payload[k] === undefined) delete payload[k];
+  }
+  const docRef = await collection.add(payload);
   return docRef.id;
 }
 
@@ -64,9 +106,43 @@ export async function updateOrderStatus(orderId: string, status: string): Promis
   await collection.doc(orderId).update({ status });
 }
 
+export async function updateOrderFields(orderId: string, fields: Record<string, unknown>): Promise<void> {
+  const collection = firestore.collection(collectionName);
+  await collection.doc(orderId).update(fields);
+}
+
 export async function deleteOrder(orderId: string): Promise<void> {
   const collection = firestore.collection(collectionName);
   await collection.doc(orderId).delete();
+}
+
+// Wipe every order document and reset the order-number counter.
+// Returns { deletedOrders, imageUrls } so the caller can also clean storage.
+export async function deleteAllOrders(): Promise<{ deletedOrders: number; imageUrls: string[] }> {
+  const orders = firestore.collection(collectionName);
+  const snapshot = await orders.get();
+  const imageUrls: string[] = [];
+
+  // Collect URLs first so we can return them to the caller for GCS cleanup.
+  for (const doc of snapshot.docs) {
+    const data = doc.data() || {};
+    if (typeof data.imageUrl === 'string') imageUrls.push(data.imageUrl);
+    if (typeof data.vibeImageUrl === 'string') imageUrls.push(data.vibeImageUrl);
+  }
+
+  // Firestore batches cap at 500 ops.
+  const CHUNK = 450;
+  for (let i = 0; i < snapshot.docs.length; i += CHUNK) {
+    const batch = firestore.batch();
+    for (const d of snapshot.docs.slice(i, i + CHUNK)) batch.delete(d.ref);
+    await batch.commit();
+  }
+
+  // Reset the order-number counter so the next order starts at 1.
+  const counterRef = firestore.collection('config').doc('counters');
+  await counterRef.set({ orderSequence: 0 }, { merge: true });
+
+  return { deletedOrders: snapshot.size, imageUrls };
 }
 
 export async function getOrder(orderId: string): Promise<Record<string, unknown> | null> {
@@ -103,7 +179,12 @@ export async function getSettings(): Promise<AppSettings> {
     await configRef.set(DEFAULT_SETTINGS);
     return DEFAULT_SETTINGS;
   }
-  return doc.data() as AppSettings;
+  const stored = (doc.data() || {}) as Partial<AppSettings>;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    instructions: { ...DEFAULT_SETTINGS.instructions, ...(stored.instructions || {}) },
+  };
 }
 
 export async function updateSettings(settings: Partial<AppSettings>): Promise<void> {

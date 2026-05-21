@@ -26,3 +26,17 @@ export async function deleteFromGCS(filename: string): Promise<void> {
     await file.delete();
   }
 }
+
+// Delete every object under the given prefixes ("" matches the whole bucket).
+// Returns the number of objects deleted.
+export async function deleteAllUnderPrefixes(prefixes: string[]): Promise<number> {
+  const bucket = storage.bucket(bucketName);
+  let total = 0;
+  for (const prefix of prefixes) {
+    const [files] = await bucket.getFiles({ prefix });
+    if (files.length === 0) continue;
+    await Promise.allSettled(files.map((f) => f.delete()));
+    total += files.length;
+  }
+  return total;
+}

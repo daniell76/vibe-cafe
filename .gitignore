@@ -24,6 +24,9 @@ override.tf.json
 _override.tf
 _override.tf.json
 .terraform.lock.hcl
+terraform/backend.hcl
+terraform/tfplan
+terraform/*.tfplan
 
 # Environment Variables
 .env
@@ -47,3 +50,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 references/
+
+# docs
+docs/
+! docs/superpowers/
+
+
+# Local prompt-test scratch images
+/tmp/
