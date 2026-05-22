@@ -167,7 +167,7 @@ export default function BaristaPage() {
                   </div>
                   <div className="actions">
                     <a
-                      className="mini-btn icon-only"
+                      className={`mini-btn download ${order.status === 'completed' ? 'primary' : ''}`}
                       href={`/api/order/${order.id}/foam`}
                       title="Download foam art"
                       aria-label={`Download foam art for #${num}`}
@@ -177,6 +177,7 @@ export default function BaristaPage() {
                         <polyline points="7 10 12 15 17 10" />
                         <line x1="12" y1="15" x2="12" y2="3" />
                       </svg>
+                      <span className="dl-label">Download</span>
                     </a>
                     {order.status === 'pickedUp' ? (
                       <span className="completed-tag pickedup">Picked up</span>
@@ -267,7 +268,7 @@ export default function BaristaPage() {
         }
         .table-head, .row {
           display: grid;
-          grid-template-columns: 110px 1fr 1.4fr 220px;
+          grid-template-columns: 110px 1fr 1.4fr 300px;
           align-items: center;
           gap: 1rem;
           padding: 0.85rem 1.5rem;
@@ -310,7 +311,7 @@ export default function BaristaPage() {
           color: var(--text-muted);
           font-size: 0.78rem;
         }
-        .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+        .actions { display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: nowrap; }
         .mini-btn {
           display: inline-flex;
           align-items: center;
@@ -323,10 +324,21 @@ export default function BaristaPage() {
           color: var(--text-muted);
           cursor: pointer;
           transition: all 0.15s;
+          /* Keep pill shape stable; never let flex squish them. */
+          flex-shrink: 0;
+          white-space: nowrap;
         }
         .mini-btn:hover { color: var(--text); border-color: var(--text-muted); }
-        .mini-btn.icon-only { padding: 0.4rem 0.55rem; }
         a.mini-btn { text-decoration: none; }
+        .mini-btn.download .dl-label { font-weight: 500; }
+        /* Per design (page 17): when the row is complete, Download becomes the row's
+           primary call-to-action (printing-station BA's next step). */
+        .mini-btn.download.primary {
+          background: var(--brand);
+          color: #fff;
+          border-color: var(--brand);
+        }
+        .mini-btn.download.primary:hover { background: var(--brand-hover); border-color: var(--brand-hover); color: #fff; }
         .mini-btn.active-making {
           color: #b07900;
           border-color: var(--g-yellow);
@@ -339,6 +351,8 @@ export default function BaristaPage() {
           color: var(--g-green);
           font-size: 0.85rem;
           font-weight: 500;
+          flex-shrink: 0;
+          white-space: nowrap;
         }
         .completed-tag.pickedup {
           background: var(--surface-muted);

@@ -109,25 +109,38 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
         </div>
 
         <div className="col">
-          <div className="gradient-card tall">
-            <div className="field">
-              <label htmlFor="happy">
-                What&apos;s your favourite hobby, music or destination?<br />
-                <span className="hint">To add instructions to prompt BA to ask for more details.</span>
-              </label>
-              <textarea
-                id="happy"
-                rows={10}
-                value={draft.happyPlace}
-                placeholder="I really like earthware pottery"
-                onChange={(e) => onChange({ ...draft, happyPlace: e.target.value })}
-              />
+          <div className="gradient-card inspiration">
+            <div className="ai-header">
+              <span className="sparkle" aria-hidden>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2 14 9l7 2-7 2-2 7-2-7-7-2 7-2z" />
+                </svg>
+              </span>
+              <span className="ai-title">AI Inspiration</span>
             </div>
-          </div>
 
-          <button type="button" className="btn btn-primary next-btn" onClick={onNext} disabled={!canContinue}>
-            Next step <span aria-hidden>→</span>
-          </button>
+            <div className="ai-hint" role="note">
+              What&apos;s your favourite hobby, music or destination? We&apos;ll use this to style your cup art.
+            </div>
+
+            <textarea
+              id="happy"
+              aria-label="Happy place"
+              rows={5}
+              value={draft.happyPlace}
+              placeholder="I really like earthware pottery and jazz music…"
+              onChange={(e) => onChange({ ...draft, happyPlace: e.target.value })}
+            />
+
+            <button
+              type="button"
+              className="btn btn-primary next-btn"
+              onClick={onNext}
+              disabled={!canContinue}
+            >
+              Next step <span aria-hidden>→</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -144,6 +157,47 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
         .field:last-child { margin-bottom: 0; }
         .hint { color: var(--text-faint); font-weight: 400; font-size: 0.8rem; }
         .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+        .inspiration {
+          display: flex;
+          flex-direction: column;
+          gap: 0.85rem;
+        }
+        .ai-header {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          color: var(--brand);
+          font-weight: 500;
+          font-size: 0.95rem;
+        }
+        .sparkle {
+          display: inline-flex;
+          width: 24px;
+          height: 24px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          background: var(--brand-soft);
+        }
+        .ai-title { letter-spacing: -0.01em; }
+        .ai-hint {
+          background: var(--surface-muted);
+          border-radius: 999px;
+          padding: 0.6rem 1rem;
+          font-size: 0.85rem;
+          color: var(--text-muted);
+          line-height: 1.45;
+        }
+        .inspiration textarea {
+          min-height: 180px;
+          resize: vertical;
+        }
+        .next-btn {
+          margin-top: 0.25rem;
+          padding: 0.9rem;
+          font-size: 1rem;
+        }
         .stepper {
           display: inline-flex;
           align-items: center;
@@ -169,8 +223,6 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
         .step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
         .step-value { min-width: 18px; text-align: center; font-weight: 600; font-size: 1rem; }
         .step-hint { padding-right: 0.6rem; font-size: 0.8rem; color: var(--text-muted); }
-        .gradient-card.tall textarea { min-height: 220px; resize: vertical; }
-        .next-btn { align-self: stretch; padding: 0.9rem; font-size: 1rem; }
         @media (max-width: 760px) {
           .grid { grid-template-columns: 1fr; }
         }

@@ -105,7 +105,8 @@ button { font-family: inherit; }
   inset: 0;
   border-radius: var(--radius-md);
   padding: 1.5px;
-  background: linear-gradient(135deg, var(--g-blue), var(--g-red), var(--g-yellow), var(--g-green));
+  /* Brief (page 6): gradient is 3 colours — Primary Blue, Secondary Green, Tertiary Yellow. No red. */
+  background: linear-gradient(135deg, var(--g-blue), var(--g-green), var(--g-yellow));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
