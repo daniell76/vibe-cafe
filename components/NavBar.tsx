@@ -29,6 +29,9 @@ export default function NavBar() {
       .catch(() => {});
   }, []);
 
+  // The big-screen booth is a kiosk surface — no navigation chrome.
+  if (pathname.startsWith('/booth')) return null;
+
   return (
     <header className="navbar">
       <div className="navbar-inner">

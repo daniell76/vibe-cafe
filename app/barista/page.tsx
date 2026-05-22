@@ -29,6 +29,7 @@ function rowToneClass(status: string) {
 export default function BaristaPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -72,9 +73,20 @@ export default function BaristaPage() {
 
   // Show everything; active states first, then picked-up at the bottom (muted).
   const STATUS_ORDER: Record<string, number> = { pending: 0, making: 1, completed: 2, pickedUp: 3 };
-  const visible = [...orders].sort(
+  const sorted = [...orders].sort(
     (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
   );
+
+  // Filter by order number (substring on padded/raw) or customer name (case-insensitive substring).
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? sorted.filter((o) => {
+        const numStr = o.orderNumber ? String(o.orderNumber) : '';
+        const padded = numStr.padStart(3, '0');
+        const name = (o.name || '').toLowerCase();
+        return numStr.includes(q) || padded.includes(q) || name.includes(q);
+      })
+    : sorted;
 
   return (
     <main className="page">
@@ -90,6 +102,29 @@ export default function BaristaPage() {
         </div>
       </div>
 
+      <div className="search-bar">
+        <span className="search-icon" aria-hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </span>
+        <input
+          type="search"
+          className="search-input"
+          placeholder="Search by order # or customer name…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setSearch(''); }}
+          aria-label="Search orders"
+        />
+        {q && (
+          <span className="search-stats">
+            {visible.length} of {sorted.length}
+          </span>
+        )}
+      </div>
+
       <div className="table">
         <div className="table-head">
           <span>Order #</span>
@@ -101,7 +136,9 @@ export default function BaristaPage() {
         {isLoading && orders.length === 0 ? (
           <div className="empty">Loading orders…</div>
         ) : visible.length === 0 ? (
-          <div className="empty">No orders yet.</div>
+          <div className="empty">
+            {q ? `No orders match “${search}”.` : 'No orders yet.'}
+          </div>
         ) : (
           <ul className="rows">
             {visible.map((order) => {
@@ -189,6 +226,40 @@ export default function BaristaPage() {
           gap: 1rem;
         }
         .counters { display: flex; gap: 0.5rem; }
+        .search-bar {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          padding: 0.4rem 0.85rem;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          margin-bottom: 1rem;
+          box-shadow: var(--shadow-sm);
+        }
+        .search-bar:focus-within {
+          border-color: var(--brand);
+          box-shadow: 0 0 0 3px rgba(26,115,232,0.15);
+        }
+        .search-icon { color: var(--text-faint); display: inline-flex; }
+        .search-input {
+          flex: 1;
+          border: none;
+          padding: 0.35rem 0;
+          background: transparent;
+          font-size: 0.95rem;
+          color: var(--text);
+          width: auto;
+        }
+        .search-input:focus { outline: none; box-shadow: none; }
+        .search-stats {
+          font-size: 0.8rem;
+          color: var(--text-muted);
+          padding: 0.15rem 0.5rem;
+          background: var(--surface-muted);
+          border-radius: 999px;
+          white-space: nowrap;
+        }
         .table {
           background: var(--surface);
           border-radius: var(--radius-md);
