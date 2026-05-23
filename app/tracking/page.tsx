@@ -68,7 +68,7 @@ export default function TrackingPage() {
       ) : (
         <ul className="rows">
           {orders.map((o) => {
-            const num = o.orderNumber ? String(o.orderNumber).padStart(2, '0') : '--';
+            const num = o.orderNumber ? String(o.orderNumber).padStart(4, '0') : '----';
             const idx = STATUS_INDEX[o.status] ?? 0;
             const isReady = o.status === 'completed';
             const isPickedUp = o.status === 'pickedUp';

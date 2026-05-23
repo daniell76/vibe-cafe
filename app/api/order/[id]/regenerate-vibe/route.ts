@@ -34,9 +34,10 @@ export async function POST(
 
     const settings = await getSettings().catch(() => null);
     const aspect = settings?.vibeImageAspect ?? '16:9';
-    const template = settings?.vibePromptTemplate || undefined;
+    const renderTemplate = settings?.vibePromptTemplate || undefined;
+    const moodTemplate = settings?.vibeMoodTemplate || undefined;
 
-    const buffer = await generateVibeImage(happyPlace, aspect, template);
+    const buffer = await generateVibeImage(happyPlace, aspect, renderTemplate, moodTemplate);
     const filename = `vibes/order-${id}-${Date.now()}.png`;
     const newUrl = await uploadToGCS(buffer, filename);
 

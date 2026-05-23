@@ -54,7 +54,7 @@ export async function GET(
 
     const [buffer] = await file.download();
     const { mime, ext } = inferContentType(gcsName);
-    const num = order.orderNumber ? String(order.orderNumber).padStart(3, '0') : 'unknown';
+    const num = order.orderNumber ? String(order.orderNumber).padStart(4, '0') : 'unknown';
     const name = safeName(String(order.name || 'guest'));
     const downloadName = `${num}-${name}.${ext}`;
 

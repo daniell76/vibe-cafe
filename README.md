@@ -23,6 +23,19 @@ The deploy script prints the Cloud Run URL when it's done.
 
 Want a different region? `REGION=us-central1 ./scripts/setup.sh YOUR_PROJECT_ID` — and the deploy step will pick it up too.
 
+**Multi-environment?** Use `gcloud config configurations` as the env switcher:
+```bash
+gcloud config configurations create dev   # or prod, staging, …
+gcloud config configurations activate dev
+gcloud config set project dev-project-id
+./scripts/setup.sh dev-project-id         # once per env
+
+# later, swap envs:
+gcloud config configurations activate dev   # or prod
+./scripts/deploy.sh                         # auto-discovers backend by gcloud project
+```
+See [`DEPLOY.md`](./DEPLOY.md) for the full multi-env workflow, including optional `.env.<project>` overrides.
+
 ## What it does
 
 There are five user-facing surfaces, all served by one Cloud Run service:

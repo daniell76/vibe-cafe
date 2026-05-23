@@ -30,21 +30,34 @@ export interface OrderData {
 
 export type VibeImageAspect = '16:9' | '4:3';
 
+export interface DrinkCategory {
+  name: string;
+  items: string[];
+}
+
 export interface AppSettings {
   appName: string;
   tagline: string;
   systemPrompt: string;
-  drinks: string[];
+  drinkCategories: DrinkCategory[];
   milks: string[];
   flavors: string[];
+  additionsEnabled: boolean;
+  extraShotsEnabled: boolean;
   instructions: {
     step1: string;
     step2: string;
     step3: string;
   };
-  promptTemplate: string;
+  aiInspirationHint: string;
+  aiInspirationPlaceholder: string;
+  // Foam art pipeline (B1): brainstorm 4 concepts, then render one icon each.
+  foamBrainstormTemplate: string;       // instructions for the brainstorm step
+  promptTemplate: string;               // per-icon render template — placeholders: {concept}, {happyPlace}
   vibeImageAspect: VibeImageAspect;
-  vibePromptTemplate: string;
+  // Vibe image pipeline (B2): extract mood (no subject nouns), render abstract wallpaper.
+  vibeMoodTemplate: string;             // instructions for the mood-extraction step
+  vibePromptTemplate: string;           // render template — placeholders: {mood}, {happyPlace}
   defaultDrink: string;
   defaultMilk: string;
   defaultAddition: string;
@@ -55,33 +68,54 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tagline: 'Experience the Future of Coffee',
   systemPrompt:
     'You are the barista AI for Vibe Café. Your goal is to guide users through selecting the perfect coffee blend based on their mood.',
-  drinks: ['Espresso', 'Americano', 'Latte', 'Cappuccino', 'Flat White', 'Cortado', 'Macchiato', 'Mocha', 'Cold Brew'],
+  // Pre-seeded per the PDF brief slide 8 (Signature Drinks / Coffees / Teas).
+  // The customer dropdown groups items by these categories.
+  drinkCategories: [
+    { name: 'Signature Drinks', items: ['Signature Drink 1', 'Signature Drink 2'] },
+    { name: 'Coffees', items: ['Espresso', 'Americano', 'Latte', 'Cappuccino', 'Flat White', 'Matcha Latte', 'Iced Cappuccino', 'Hot Chocolate'] },
+    { name: 'Teas', items: ['English Breakfast Tea', 'Earl Grey Tea', 'Peppermint Tea', 'Green Tea'] },
+  ],
   milks: ['Regular Milk', 'Oat Milk', 'Almond Milk', 'Soy Milk', 'None'],
   flavors: ['Vanilla', 'Caramel', 'Hazelnut', 'Sugar Free', 'None'],
+  // Both default OFF per page-10 comment ("for this event there is no additions or
+  // extra shots option"). Admin can flip either on; items are pre-populated so the
+  // operator just toggles to enable.
+  additionsEnabled: false,
+  extraShotsEnabled: false,
   instructions: {
     step1: 'Personalise your perfect brew',
     step2: 'Choose a generative pattern for your latte art. Our barista bots will precision-etch this design using micro-foam projection.',
     step3: 'Please review your selections before finalising.',
   },
+  aiInspirationHint: "What's your favourite hobby, music or destination? We'll use this to style your cup art.",
+  aiInspirationPlaceholder: 'I like soul music and especially the music of Aretha Franklin.',
+  foamBrainstormTemplate:
+    'You generate concept ideas for printable coffee-foam icons. Given a user\'s "happy place" description, return EXACTLY 4 distinct, simple, iconic objects or symbols inspired by — but not directly referencing — the subject. Each concept must be a single recognisable object that can be rendered as a clean black-and-white silhouette icon.\n\n' +
+    'Rules:\n' +
+    '- 4 distinct concepts, each a short noun phrase (max ~3 words).\n' +
+    '- Avoid the subject\'s name itself, brand names, logos, or text.\n' +
+    '- Avoid abstract concepts ("freedom", "joy") — pick concrete renderable objects.',
   promptTemplate:
-    'A flat, single-layer high-contrast sepia-on-white stencil illustration of {happyPlace}. ' +
-    'Render the subject as a single isolated shape — or a small group of clearly disconnected shapes — drifting on an empty pure-white square canvas. ' +
-    'The subject occupies roughly the middle 50% of the canvas. ' +
-    'The entire outer 25% margin on every side — and especially all four corners — is uniform RGB(255,255,255) pure-white empty pixels with no marks, no shading, no gradient, no texture. ' +
-    'Absolutely nothing surrounds the subject: no enclosing shape, no border, no frame, no medallion, no badge, no emblem, no coin, no disc, no plate, no roundel, no halo, no aura, no glow, no vignette, no decorative scrollwork, no leaves around the subject, no background scenery, no coffee cup, no saucer. ' +
-    'Clean bold edges, highly graphic, no 3D shading, no photorealism.',
+    'A simple, bold, black-on-white silhouette icon of: {concept}. ' +
+    'Inspired by, but not directly referencing: {happyPlace}. ' +
+    'Single isolated icon centered on a pure white square canvas with substantial empty white margins on all sides. ' +
+    'Clean thick lines, high contrast, no text, no words, no logos, no faces, no people, no 3D shading, no photorealism, no background, no decorative frame or ring around the icon.',
   vibeImageAspect: '16:9',
+  vibeMoodTemplate:
+    'Given a user\'s "happy place" description, extract its emotional ATMOSPHERE into a short, evocative paragraph (60-80 words). Describe colors, light, texture, energy, mood, era, time of day, weather — anything that captures the FEELING of the subject without naming the subject itself.\n\n' +
+    'Strictly do NOT mention:\n' +
+    '- The original subject\'s name, nouns, people, places, brands, instruments, objects, animals, body parts, buildings, vehicles, food items.\n' +
+    '- Verbs of action involving people or things.\n\n' +
+    'DO use:\n' +
+    '- Color palette words ("warm amber", "deep crimson and gold", "soft sage")\n' +
+    '- Light/atmosphere words ("dappled afternoon sun", "neon haze", "candlelight glow")\n' +
+    '- Texture words ("velvet", "rough plaster", "molten metal")\n' +
+    '- Energy/mood words ("urgent", "languid", "exuberant", "contemplative")',
   vibePromptTemplate:
-    'A stunning, delightful, magazine-quality photograph capturing the essence of: {happyPlace}. ' +
-    'Cinematic composition, warm and inviting natural lighting, rich texture and depth, professional photography, ' +
-    'soothing and aesthetic atmosphere, sharp focus, full-bleed wallpaper-ready framing.\n\n' +
-    'People rule: include human figures ONLY when the description explicitly is about a person, a named individual, a group of people, ' +
-    'or when it explicitly mentions a crowd, gathering, festival, parade, audience, concert, wedding, party, dance, performance, ' +
-    'busy/bustling/crowded scene, shoppers, market vendors, players, dancers, performers, or similar group activity. ' +
-    'For all other subjects — quiet places, landmarks, objects, plants, food, animals, vehicles, scenery, still life — render the scene ' +
-    'completely free of incidental human figures: no bystanders, no pedestrians, no tiny crowd figures in the background, no silhouettes of people, no faces. ' +
-    'The photograph should look as if captured during a perfect, deliberate moment.\n\n' +
-    'No text, no watermark.',
+    'A purely abstract painterly wallpaper that captures this atmosphere: {mood} ' +
+    'Render entirely with non-figurative brushwork, color gradients, light, textures, particles, and abstract flowing forms. ' +
+    'Premium 4K wallpaper quality, cinematic depth, rich layered color, generous negative space, designed to fill a large landscape screen. ' +
+    'Strictly no text, no words, no letters, no people, no faces, no recognizable objects, no buildings, no logos.',
   defaultDrink: 'Latte',
   defaultMilk: 'None',
   defaultAddition: 'None',
@@ -205,7 +239,7 @@ export async function getNextOrderNumber(): Promise<number> {
         nextNumber = (data?.orderSequence || 0) + 1;
       }
       
-      if (nextNumber > 999) {
+      if (nextNumber > 9999) {
         nextNumber = 1;
       }
       

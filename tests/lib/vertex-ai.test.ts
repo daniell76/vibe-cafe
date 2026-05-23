@@ -23,13 +23,11 @@ vi.mock('@google/genai', () => {
 });
 
 describe('Gen AI Service', () => {
-  describe('optimizePrompt', () => {
-    it('should convert a simple happy place into a detailed coffee art prompt', async () => {
+  describe('optimizePrompt (deprecated passthrough)', () => {
+    it('returns the input unchanged (B1 pipeline replaced this with brainstormIconConcepts)', async () => {
       const input = 'a sunny beach';
       const result = await optimizePrompt(input);
-      
-      expect(result).toContain('coffee foam art');
-      expect(result).toContain('sunny beach');
+      expect(result).toBe(input);
     });
   });
 

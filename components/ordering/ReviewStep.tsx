@@ -77,7 +77,6 @@ export default function ReviewStep({ draft, selectedArt, isSubmitting, onEdit, o
             <div className="art-circle">
               <Image src={selectedArt.imageUrl} alt={selectedArt.label} width={420} height={420} unoptimized />
             </div>
-            <span className="art-label">{selectedArt.label}</span>
           </div>
         </div>
       </div>
@@ -158,32 +157,26 @@ export default function ReviewStep({ draft, selectedArt, isSubmitting, onEdit, o
         .terms { font-size: 0.75rem; color: var(--text-faint); text-align: center; margin: 0; }
         .right { position: sticky; top: 100px; }
         .art-frame { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; padding: 1.5rem; }
+        /* Per page-14 comment: the image must visually fit the circle, not look
+           like a square inside a circle. Background is white to match the
+           sepia-on-white foam art; image fills the circle via object-fit cover
+           and the .art-circle's own border-radius clips it. */
         .art-circle {
           width: 100%;
           aspect-ratio: 1 / 1;
-          background: radial-gradient(circle at 50% 50%, #2a2a2a 0%, #0a0a0a 100%);
+          background: #ffffff;
           border-radius: 50%;
           overflow: hidden;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
+          box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06), 0 8px 24px rgba(15,23,42,0.08);
         }
         .art-circle :global(img) {
-          width: 80%;
-          height: 80%;
-          object-fit: contain;
-          mix-blend-mode: screen;
-        }
-        .art-label {
-          padding: 0.3rem 0.9rem;
-          border-radius: 999px;
-          background: var(--surface-muted);
-          font-size: 0.85rem;
-          color: var(--text-muted);
-          display: inline-flex;
-          align-items: center;
-          gap: 0.35rem;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
         }
         @media (max-width: 760px) {
           .grid { grid-template-columns: 1fr; }

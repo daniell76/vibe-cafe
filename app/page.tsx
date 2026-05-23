@@ -1,13 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CustomizeStep from '@/components/ordering/CustomizeStep';
 import ArtSelectStep from '@/components/ordering/ArtSelectStep';
 import ReviewStep from '@/components/ordering/ReviewStep';
 import ConfirmedStep from '@/components/ordering/ConfirmedStep';
 import { ArtOption, DEFAULT_ORDER_SETTINGS, OrderDraft, OrderSettings } from '@/components/ordering/types';
+import { useSessionState, clearSessionPrefix } from '@/lib/sessionState';
 
 type Step = 'customize' | 'art' | 'review' | 'confirmed' | 'error';
+
+// All ordering state lives under this key prefix so we can wipe it atomically
+// on order completion or "New Order".
+const SS_PREFIX = 'vibe-cafe.order.';
 
 const EMPTY_DRAFT: OrderDraft = {
   name: '',
@@ -27,50 +32,68 @@ function resolveDefault(items: string[] | undefined, configured: string | undefi
 }
 
 export default function OrderingPage() {
-  const [step, setStep] = useState<Step>('customize');
-  const [draft, setDraft] = useState<OrderDraft>(EMPTY_DRAFT);
+  // Persisted across in-tab navigation + refresh (30 min expiry).
+  const [step, setStep, stepHydrated] = useSessionState<Step>(`${SS_PREFIX}step`, 'customize');
+  const [draft, setDraft, draftHydrated] = useSessionState<OrderDraft>(`${SS_PREFIX}draft`, EMPTY_DRAFT);
+  const [artOptions, setArtOptions] = useSessionState<ArtOption[]>(`${SS_PREFIX}options`, []);
+  const [vibeImageUrl, setVibeImageUrl] = useSessionState<string | null>(`${SS_PREFIX}vibe`, null);
+  const [selectedArtId, setSelectedArtId] = useSessionState<string | null>(`${SS_PREFIX}selected`, null);
+  const [confirmedOrderNumber, setConfirmedOrderNumber] = useSessionState<number | null>(`${SS_PREFIX}confirmed`, null);
+
+  // Transient (not persisted) — refetched / derived on mount.
   const [settings, setSettings] = useState<OrderSettings>(DEFAULT_ORDER_SETTINGS);
-  const [artOptions, setArtOptions] = useState<ArtOption[]>([]);
-  const [vibeImageUrl, setVibeImageUrl] = useState<string | null>(null);
-  const [selectedArtId, setSelectedArtId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [confirmedOrderNumber, setConfirmedOrderNumber] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Guard against double-firing the auto-resume effect across re-renders.
+  const resumedRef = useRef(false);
 
   useEffect(() => {
     fetch('/api/config')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data) return;
-        const drinks = data.drinks?.length ? data.drinks : DEFAULT_ORDER_SETTINGS.drinks;
         const milks = data.milks?.length ? data.milks : DEFAULT_ORDER_SETTINGS.milks;
         const flavors = data.flavors?.length ? data.flavors : DEFAULT_ORDER_SETTINGS.flavors;
+        const drinkCategories = Array.isArray(data.drinkCategories) && data.drinkCategories.length
+          ? data.drinkCategories
+          : DEFAULT_ORDER_SETTINGS.drinkCategories;
+        const allDrinks = drinkCategories.flatMap((c: { items: string[] }) => c.items);
         setSettings({
           appName: data.appName ?? DEFAULT_ORDER_SETTINGS.appName,
           tagline: data.tagline ?? DEFAULT_ORDER_SETTINGS.tagline,
-          drinks,
+          drinkCategories,
           milks,
           flavors,
+          additionsEnabled: typeof data.additionsEnabled === 'boolean' ? data.additionsEnabled : DEFAULT_ORDER_SETTINGS.additionsEnabled,
+          extraShotsEnabled: typeof data.extraShotsEnabled === 'boolean' ? data.extraShotsEnabled : DEFAULT_ORDER_SETTINGS.extraShotsEnabled,
           instructions: data.instructions ?? DEFAULT_ORDER_SETTINGS.instructions,
+          aiInspirationHint: data.aiInspirationHint ?? DEFAULT_ORDER_SETTINGS.aiInspirationHint,
+          aiInspirationPlaceholder: data.aiInspirationPlaceholder ?? DEFAULT_ORDER_SETTINGS.aiInspirationPlaceholder,
           defaultDrink: data.defaultDrink ?? DEFAULT_ORDER_SETTINGS.defaultDrink,
           defaultMilk: data.defaultMilk ?? DEFAULT_ORDER_SETTINGS.defaultMilk,
           defaultAddition: data.defaultAddition ?? DEFAULT_ORDER_SETTINGS.defaultAddition,
         });
-        setDraft((prev) => ({
-          ...prev,
-          coffeeOrder: resolveDefault(drinks, data.defaultDrink),
-          milk: resolveDefault(milks, data.defaultMilk),
-          addition: resolveDefault(flavors, data.defaultAddition),
-        }));
+        // Only seed draft defaults if the user hasn't already started a draft
+        // (i.e. we just hydrated an empty draft from a fresh session).
+        setDraft((prev) => {
+          if (prev.name || prev.happyPlace) return prev;
+          return {
+            ...prev,
+            coffeeOrder: resolveDefault(allDrinks, data.defaultDrink),
+            milk: resolveDefault(milks, data.defaultMilk),
+            addition: resolveDefault(flavors, data.defaultAddition),
+          };
+        });
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchPreviews = async () => {
     setIsGenerating(true);
-    // Stash the URLs we're about to throw away so submit can ask the backend
-    // to clean them up from GCS even after a regenerate.
+    // Stash the URLs we're about to throw away so cleanup can purge them from GCS.
     const orphans = artOptions.map((o) => o.imageUrl);
     if (vibeImageUrl) orphans.push(vibeImageUrl);
     setArtOptions([]);
@@ -83,12 +106,21 @@ export default function OrderingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ happyPlace: draft.happyPlace }),
       });
+      // The server returns 422 only when BOTH generation batches failed —
+      // very rare, almost always means the customer's input is problematic.
+      // Surface a friendly message and send them back to edit the input.
+      if (res.status === 422) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || "We couldn't generate art for that input. Try a different favourite item.");
+        setStep('customize');
+        resumedRef.current = false;
+        return;
+      }
       if (!res.ok) throw new Error('Failed to generate art previews');
       const data = await res.json();
       setArtOptions(data.options || []);
       setVibeImageUrl(data.vibeImageUrl || null);
       if (data.options?.[0]) setSelectedArtId(data.options[0].id);
-      // Best-effort cleanup of the previous round's orphans.
       if (orphans.length > 0) {
         fetch('/api/order/preview/cleanup', {
           method: 'POST',
@@ -113,6 +145,43 @@ export default function OrderingPage() {
   const regenerate = async () => {
     await fetchPreviews();
   };
+
+  // Edge case 2: in-flight generation. If we hydrate into step='art' with no
+  // options + a non-empty happyPlace, the user was mid-generation when they
+  // navigated away. The original fetch is gone; re-trigger it.
+  useEffect(() => {
+    if (!stepHydrated || !draftHydrated) return;
+    if (resumedRef.current) return;
+    if (step === 'art' && artOptions.length === 0 && !isGenerating && draft.happyPlace.trim()) {
+      resumedRef.current = true;
+      const t = setTimeout(fetchPreviews, 0);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepHydrated, draftHydrated, step, artOptions.length, isGenerating]);
+
+  // Edge case 1: stale URLs. If any of the persisted preview images 404 (our
+  // cleanup endpoint deleted them), regenerate the whole set. We HEAD-probe
+  // the first option on hydrate; if it's gone, all four are (same session).
+  useEffect(() => {
+    if (!stepHydrated) return;
+    if (step !== 'art' || artOptions.length === 0) return;
+    if (isGenerating) return;
+    let cancelled = false;
+    fetch(artOptions[0].imageUrl, { method: 'HEAD' })
+      .then((r) => {
+        if (cancelled) return;
+        if (r.status === 404) {
+          // Clear options so the auto-resume effect above will re-trigger gen.
+          resumedRef.current = false;
+          setArtOptions([]);
+          setSelectedArtId(null);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepHydrated]);
 
   const submitOrder = async () => {
     const selected = artOptions.find((o) => o.id === selectedArtId);
@@ -151,9 +220,13 @@ export default function OrderingPage() {
   };
 
   const reset = () => {
+    // Edge case 3: clear persisted state so the next customer (or this one
+    // hitting "New Order") starts clean.
+    clearSessionPrefix(SS_PREFIX);
+    resumedRef.current = false;
     setDraft({
       ...EMPTY_DRAFT,
-      coffeeOrder: resolveDefault(settings.drinks, settings.defaultDrink),
+      coffeeOrder: resolveDefault(settings.drinkCategories.flatMap((c) => c.items), settings.defaultDrink),
       milk: resolveDefault(settings.milks, settings.defaultMilk),
       addition: resolveDefault(settings.flavors, settings.defaultAddition),
     });
@@ -168,7 +241,57 @@ export default function OrderingPage() {
   return (
     <main className="page">
       {step === 'customize' && (
-        <CustomizeStep draft={draft} settings={settings} onChange={setDraft} onNext={goToArt} />
+        <>
+          {error && (
+            <div className="generation-error">
+              <span aria-hidden>⚠</span>
+              <span>{error}</span>
+              <button
+                type="button"
+                className="dismiss"
+                onClick={() => setError(null)}
+                aria-label="Dismiss"
+              >×</button>
+            </div>
+          )}
+          <CustomizeStep
+            draft={draft}
+            settings={settings}
+            onChange={(next) => {
+              // Clear the banner as soon as the user edits anything.
+              if (error) setError(null);
+              setDraft(next);
+            }}
+            onNext={goToArt}
+          />
+          <style jsx>{`
+            .generation-error {
+              display: flex;
+              align-items: center;
+              gap: 0.75rem;
+              padding: 0.85rem 1rem;
+              margin: 0 0 1.5rem 0;
+              background: rgba(251,188,5,0.12);
+              border: 1px solid rgba(251,188,5,0.45);
+              border-radius: var(--radius-sm);
+              color: #7a5c00;
+              font-size: 0.9rem;
+              line-height: 1.4;
+            }
+            .generation-error span:nth-child(2) { flex: 1; }
+            .dismiss {
+              background: transparent;
+              border: none;
+              color: inherit;
+              cursor: pointer;
+              font-size: 1.25rem;
+              line-height: 1;
+              padding: 0 0.25rem;
+              opacity: 0.7;
+            }
+            .dismiss:hover { opacity: 1; }
+          `}</style>
+        </>
       )}
 
       {step === 'art' && (

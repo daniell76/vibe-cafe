@@ -1,7 +1,0 @@
-# Copy this to backend.hcl and replace <PROJECT_ID> with your GCP project id,
-# then run:  terraform init -backend-config=backend.hcl
-#
-# scripts/setup.sh writes backend.hcl for you automatically.
-
-bucket = "<PROJECT_ID>_tfstate"
-prefix = "vibe-cafe"

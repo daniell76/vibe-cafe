@@ -1,6 +1,7 @@
 'use client';
 
 import { OrderDraft, OrderSettings } from './types';
+import CategorizedSelect from './CategorizedSelect';
 
 interface Props {
   draft: OrderDraft;
@@ -11,6 +12,12 @@ interface Props {
 
 export default function CustomizeStep({ draft, settings, onChange, onNext }: Props) {
   const canContinue = draft.name.trim().length > 0 && draft.happyPlace.trim().length > 0;
+
+  // Per page-10 comment: the admin explicitly toggles whether Additions / Extra
+  // Shots are shown to customers. Items themselves are pre-populated so the
+  // operator just flips the switch when needed.
+  const showAdditions = settings.additionsEnabled === true && settings.flavors.length > 0;
+  const showExtraShots = settings.extraShotsEnabled === true;
 
   return (
     <div className="customize">
@@ -35,15 +42,13 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
 
             <div className="field">
               <label htmlFor="drink">Select a drink</label>
-              <select
+              <CategorizedSelect
                 id="drink"
                 value={draft.coffeeOrder}
-                onChange={(e) => onChange({ ...draft, coffeeOrder: e.target.value })}
-              >
-                {settings.drinks.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
+                categories={settings.drinkCategories}
+                placeholder="Choose a drink"
+                onChange={(v) => onChange({ ...draft, coffeeOrder: v })}
+              />
             </div>
           </div>
 
@@ -66,45 +71,49 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
               </div>
             </div>
 
-            <div className="field">
-              <label>Additions</label>
-              <div className="chips" role="radiogroup" aria-label="Additions">
-                {settings.flavors.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    role="radio"
-                    aria-checked={draft.addition === f}
-                    className={`btn-chip ${draft.addition === f ? 'active' : ''}`}
-                    onClick={() => onChange({ ...draft, addition: f })}
-                  >
-                    {f}
-                  </button>
-                ))}
+            {showAdditions && (
+              <div className="field">
+                <label>Additions</label>
+                <div className="chips" role="radiogroup" aria-label="Additions">
+                  {settings.flavors.map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.addition === f}
+                      className={`btn-chip ${draft.addition === f ? 'active' : ''}`}
+                      onClick={() => onChange({ ...draft, addition: f })}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="field">
-              <label>Extra Shots</label>
-              <div className="stepper" role="group" aria-label="Extra shots">
-                <button
-                  type="button"
-                  className="step-btn"
-                  aria-label="Decrease extra shots"
-                  onClick={() => onChange({ ...draft, extraShots: Math.max(0, (draft.extraShots ?? 0) - 1) })}
-                  disabled={(draft.extraShots ?? 0) <= 0}
-                >−</button>
-                <span className="step-value" aria-live="polite">{draft.extraShots ?? 0}</span>
-                <button
-                  type="button"
-                  className="step-btn"
-                  aria-label="Increase extra shots"
-                  onClick={() => onChange({ ...draft, extraShots: Math.min(5, (draft.extraShots ?? 0) + 1) })}
-                  disabled={(draft.extraShots ?? 0) >= 5}
-                >+</button>
-                <span className="step-hint">{(draft.extraShots ?? 0) === 0 ? 'No extra shots' : `${draft.extraShots} extra shot${draft.extraShots === 1 ? '' : 's'}`}</span>
+            {showExtraShots && (
+              <div className="field">
+                <label>Extra Shots</label>
+                <div className="stepper" role="group" aria-label="Extra shots">
+                  <button
+                    type="button"
+                    className="step-btn"
+                    aria-label="Decrease extra shots"
+                    onClick={() => onChange({ ...draft, extraShots: Math.max(0, (draft.extraShots ?? 0) - 1) })}
+                    disabled={(draft.extraShots ?? 0) <= 0}
+                  >−</button>
+                  <span className="step-value" aria-live="polite">{draft.extraShots ?? 0}</span>
+                  <button
+                    type="button"
+                    className="step-btn"
+                    aria-label="Increase extra shots"
+                    onClick={() => onChange({ ...draft, extraShots: Math.min(5, (draft.extraShots ?? 0) + 1) })}
+                    disabled={(draft.extraShots ?? 0) >= 5}
+                  >+</button>
+                  <span className="step-hint">{(draft.extraShots ?? 0) === 0 ? 'No extra shots' : `${draft.extraShots} extra shot${draft.extraShots === 1 ? '' : 's'}`}</span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -120,7 +129,7 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
             </div>
 
             <div className="ai-hint" role="note">
-              What&apos;s your favourite hobby, music or destination? We&apos;ll use this to style your cup art.
+              {settings.aiInspirationHint}
             </div>
 
             <textarea
@@ -128,7 +137,7 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
               aria-label="Happy place"
               rows={5}
               value={draft.happyPlace}
-              placeholder="I really like earthware pottery and jazz music…"
+              placeholder={settings.aiInspirationPlaceholder}
               onChange={(e) => onChange({ ...draft, happyPlace: e.target.value })}
             />
 

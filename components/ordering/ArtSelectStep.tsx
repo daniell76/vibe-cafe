@@ -16,6 +16,16 @@ interface Props {
 }
 
 export default function ArtSelectStep({ options, selectedId, isLoading, settings, onSelect, onBack, onNext, onRegenerate }: Props) {
+  // Per page-11 comment: during loading, hide the page header AND the action
+  // buttons — only the VibeLoader should be visible. Both reappear once ready.
+  if (isLoading) {
+    return (
+      <div className="art-step">
+        <VibeLoader caption="Generating four custom designs from your vibe…" />
+      </div>
+    );
+  }
+
   return (
     <div className="art-step">
       <div className="header">
@@ -27,43 +37,35 @@ export default function ArtSelectStep({ options, selectedId, isLoading, settings
         <div className="spacer" />
       </div>
 
-      {isLoading ? (
-        <VibeLoader caption="Generating four custom designs from your vibe…" />
-      ) : (
-        <div className="grid">
-          {options.map((opt) => {
-            const isSelected = selectedId === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                className={`art-card ${isSelected ? 'selected' : ''}`}
-                onClick={() => onSelect(opt.id)}
-              >
-                <div className="thumb">
-                  <Image src={opt.imageUrl} alt={opt.label} width={300} height={300} unoptimized />
-                  {isSelected && (
-                    <span className="check" aria-hidden>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                    </span>
-                  )}
-                </div>
-                <div className="meta">
-                  <span className="label">{opt.label}</span>
-                  <span className="desc">{opt.description}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div className="grid">
+        {options.map((opt) => {
+          const isSelected = selectedId === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              className={`art-card ${isSelected ? 'selected' : ''}`}
+              onClick={() => onSelect(opt.id)}
+            >
+              <div className="thumb">
+                <Image src={opt.imageUrl} alt={opt.label} width={300} height={300} unoptimized />
+                {isSelected && (
+                  <span className="check" aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="actions">
-        <button className="btn btn-ghost" onClick={onRegenerate} disabled={isLoading}>
+        <button className="btn btn-ghost" onClick={onRegenerate}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           Regenerate
         </button>
-        <button className="btn btn-primary" onClick={onNext} disabled={!selectedId || isLoading}>
+        <button className="btn btn-primary" onClick={onNext} disabled={!selectedId}>
           Confirm selection →
         </button>
       </div>
@@ -129,9 +131,6 @@ export default function ArtSelectStep({ options, selectedId, isLoading, settings
           justify-content: center;
           box-shadow: var(--shadow-md);
         }
-        .meta { display: flex; flex-direction: column; gap: 0.15rem; }
-        .label { font-weight: 600; }
-        .desc { font-size: 0.85rem; color: var(--text-muted); }
         .actions { display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap; }
         .loading {
           padding: 4rem 2rem;

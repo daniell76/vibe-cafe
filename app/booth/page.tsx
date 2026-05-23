@@ -219,7 +219,7 @@ export default function BoothPage() {
             <div className="panel-head">
               {order ? (
                 <div className="loaded">
-                  <span className="loaded-num">#{String(order.orderNumber).padStart(3, '0')}</span>
+                  <span className="loaded-num">#{String(order.orderNumber).padStart(4, '0')}</span>
                   <span className="loaded-name">{order.name}</span>
                 </div>
               ) : (

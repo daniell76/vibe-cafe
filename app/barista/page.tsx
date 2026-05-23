@@ -82,7 +82,7 @@ export default function BaristaPage() {
   const visible = q
     ? sorted.filter((o) => {
         const numStr = o.orderNumber ? String(o.orderNumber) : '';
-        const padded = numStr.padStart(3, '0');
+        const padded = numStr.padStart(4, '0');
         const name = (o.name || '').toLowerCase();
         return numStr.includes(q) || padded.includes(q) || name.includes(q);
       })
@@ -143,7 +143,7 @@ export default function BaristaPage() {
           <ul className="rows">
             {visible.map((order) => {
               const tone = rowToneClass(order.status);
-              const num = order.orderNumber ? String(order.orderNumber).padStart(3, '0') : '---';
+              const num = order.orderNumber ? String(order.orderNumber).padStart(4, '0') : '----';
               const addOns = [
                 order.milk && order.milk !== 'None' ? order.milk : null,
                 ...(order.additions || []).filter((a) => a && a !== 'None'),

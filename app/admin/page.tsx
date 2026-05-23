@@ -3,17 +3,29 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import MenuListEditor from '@/components/MenuListEditor';
+import DrinkCategoriesEditor from '@/components/DrinkCategoriesEditor';
+
+interface DrinkCategory {
+  name: string;
+  items: string[];
+}
 
 interface Settings {
   appName: string;
   tagline: string;
   systemPrompt: string;
-  drinks: string[];
+  drinkCategories: DrinkCategory[];
   milks: string[];
   flavors: string[];
+  additionsEnabled: boolean;
+  extraShotsEnabled: boolean;
   instructions: { step1: string; step2: string; step3: string };
+  aiInspirationHint: string;
+  aiInspirationPlaceholder: string;
+  foamBrainstormTemplate: string;
   promptTemplate: string;
   vibeImageAspect: '16:9' | '4:3';
+  vibeMoodTemplate: string;
   vibePromptTemplate: string;
   defaultDrink: string;
   defaultMilk: string;
@@ -35,12 +47,18 @@ const DEFAULT_SETTINGS: Settings = {
   tagline: 'Experience the Future of Coffee',
   systemPrompt:
     'You are the barista AI for Vibe Café. Your goal is to guide users through selecting the perfect coffee blend based on their mood.',
-  drinks: [],
+  drinkCategories: [],
   milks: [],
   flavors: [],
+  additionsEnabled: false,
+  extraShotsEnabled: false,
   instructions: { step1: '', step2: '', step3: '' },
+  aiInspirationHint: '',
+  aiInspirationPlaceholder: '',
+  foamBrainstormTemplate: '',
   promptTemplate: '',
   vibeImageAspect: '16:9',
+  vibeMoodTemplate: '',
   vibePromptTemplate: '',
   defaultDrink: 'Latte',
   defaultMilk: 'None',
@@ -109,7 +127,6 @@ export default function AdminPage() {
     setSavingMsg('');
     const payload: Settings = {
       ...settings,
-      drinks: (settings.drinks || []).map((s) => s.trim()).filter(Boolean),
       milks: (settings.milks || []).map((s) => s.trim()).filter(Boolean),
       flavors: (settings.flavors || []).map((s) => s.trim()).filter(Boolean),
     };
@@ -266,26 +283,7 @@ export default function AdminPage() {
 
               <div className="card panel">
                 <h3 className="panel-title brand">🍵 Menu Inventory</h3>
-                <div className="inv-grid">
-                  <MenuListEditor
-                    label="Base Coffee"
-                    items={settings.drinks}
-                    placeholder="e.g. Latte"
-                    onChange={(next) => setSettings({ ...settings, drinks: next })}
-                  />
-                  <MenuListEditor
-                    label="Milks"
-                    items={settings.milks}
-                    placeholder="e.g. Oat Milk"
-                    onChange={(next) => setSettings({ ...settings, milks: next })}
-                  />
-                  <MenuListEditor
-                    label="Flavors"
-                    items={settings.flavors}
-                    placeholder="e.g. Vanilla"
-                    onChange={(next) => setSettings({ ...settings, flavors: next })}
-                  />
-                </div>
+                <p className="hint">Edit drink categories, milks, additions and toggles in Menu Management.</p>
               </div>
 
               <div className="save-bar">
@@ -327,26 +325,53 @@ export default function AdminPage() {
           <div className="card panel">
             <h3 className="panel-title brand">🍵 Menu Inventory</h3>
             <p className="hint">Add or remove items individually. Updates are live for guests immediately.</p>
-            <div className="inv-grid">
-              <MenuListEditor
-                label="Base Coffee"
-                items={settings.drinks}
-                placeholder="e.g. Latte"
-                onChange={(next) => setSettings({ ...settings, drinks: next })}
+            <h4 className="sub-title">Drink categories (grouped dropdown)</h4>
+            <DrinkCategoriesEditor
+              categories={settings.drinkCategories}
+              onChange={(next) => setSettings({ ...settings, drinkCategories: next })}
+            />
+
+            <hr className="divider" />
+
+            <h4 className="sub-title">Milks</h4>
+            <MenuListEditor
+              label="Milk options"
+              items={settings.milks}
+              placeholder="e.g. Oat Milk"
+              onChange={(next) => setSettings({ ...settings, milks: next })}
+            />
+
+            <hr className="divider" />
+
+            <h4 className="sub-title">Additions / flavors</h4>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.additionsEnabled}
+                onChange={(e) => setSettings({ ...settings, additionsEnabled: e.target.checked })}
               />
-              <MenuListEditor
-                label="Milks"
-                items={settings.milks}
-                placeholder="e.g. Oat Milk"
-                onChange={(next) => setSettings({ ...settings, milks: next })}
+              <span>Show Additions on the ordering page</span>
+            </label>
+            <p className="hint">When off, the Additions section is hidden from customers (use this for events that don&apos;t offer flavored syrups). Items below are still saved so you can flip the toggle later without re-typing.</p>
+            <MenuListEditor
+              label="Addition options"
+              items={settings.flavors}
+              placeholder="e.g. Vanilla"
+              onChange={(next) => setSettings({ ...settings, flavors: next })}
+            />
+
+            <hr className="divider" />
+
+            <h4 className="sub-title">Extra shots</h4>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.extraShotsEnabled}
+                onChange={(e) => setSettings({ ...settings, extraShotsEnabled: e.target.checked })}
               />
-              <MenuListEditor
-                label="Flavors"
-                items={settings.flavors}
-                placeholder="e.g. Vanilla"
-                onChange={(next) => setSettings({ ...settings, flavors: next })}
-              />
-            </div>
+              <span>Show Extra Shots stepper on the ordering page</span>
+            </label>
+            <p className="hint">When off, the stepper is hidden from customers.</p>
 
             <hr className="divider" />
             <h4 className="sub-title">Defaults shown on the Ordering page</h4>
@@ -354,17 +379,23 @@ export default function AdminPage() {
             <div className="inv-grid">
               <div className="default-field">
                 <label>Default drink</label>
-                <select
-                  value={settings.drinks.includes(settings.defaultDrink) ? settings.defaultDrink : ''}
-                  onChange={(e) => setSettings({ ...settings, defaultDrink: e.target.value })}
-                >
-                  {!settings.drinks.includes(settings.defaultDrink) && (
-                    <option value="" disabled>Select a drink…</option>
-                  )}
-                  {settings.drinks.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
+                {(() => {
+                  const allDrinks = settings.drinkCategories.flatMap((c) => c.items);
+                  const hasMatch = allDrinks.includes(settings.defaultDrink);
+                  return (
+                    <select
+                      value={hasMatch ? settings.defaultDrink : ''}
+                      onChange={(e) => setSettings({ ...settings, defaultDrink: e.target.value })}
+                    >
+                      {!hasMatch && <option value="" disabled>Select a drink…</option>}
+                      {settings.drinkCategories.map((cat) => (
+                        <optgroup key={cat.name} label={cat.name || '—'}>
+                          {cat.items.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  );
+                })()}
               </div>
               <div className="default-field">
                 <label>Default milk</label>
@@ -432,8 +463,63 @@ export default function AdminPage() {
                 setSettings({ ...settings, instructions: { ...settings.instructions, step3: e.target.value } })
               }
             />
+
+            <hr className="divider" />
+            <h4 className="sub-title">✨ AI Inspiration card (ordering page)</h4>
             <div className="label-row">
-              <label>Foam Prompt Template (use {`{happyPlace}`})</label>
+              <label>Hint shown above the textarea</label>
+              <button
+                type="button"
+                className="restore-link"
+                onClick={() => restoreDefault('aiInspirationHint')}
+              >⟲ Restore default</button>
+            </div>
+            <textarea
+              rows={2}
+              value={settings.aiInspirationHint}
+              placeholder="What's your favourite hobby, music or destination?…"
+              onChange={(e) => setSettings({ ...settings, aiInspirationHint: e.target.value })}
+            />
+            <div className="label-row">
+              <label>Textarea placeholder (example user input for this event)</label>
+              <button
+                type="button"
+                className="restore-link"
+                onClick={() => restoreDefault('aiInspirationPlaceholder')}
+              >⟲ Restore default</button>
+            </div>
+            <input
+              type="text"
+              value={settings.aiInspirationPlaceholder}
+              placeholder="I like soul music and especially the music of Aretha Franklin."
+              onChange={(e) => setSettings({ ...settings, aiInspirationPlaceholder: e.target.value })}
+            />
+
+            <hr className="divider" />
+            <h4 className="sub-title">☕ Coffee foam art (4 distinct icons)</h4>
+            <p className="hint">Stage 1: a text model brainstorms 4 concept nouns from the customer&apos;s input. Stage 2: each concept is rendered as one foam icon.</p>
+
+            <div className="label-row">
+              <label>Brainstorm instructions (stage 1 — returns 4 concept nouns)</label>
+              <button
+                type="button"
+                className="restore-link"
+                onClick={() => restoreDefault('foamBrainstormTemplate')}
+                title="Replace this field with the built-in default. Click Save to persist."
+              >
+                ⟲ Restore default
+              </button>
+            </div>
+            <textarea
+              rows={5}
+              className="code"
+              value={settings.foamBrainstormTemplate}
+              placeholder="Return 4 distinct simple icon concepts inspired by the user input…"
+              onChange={(e) => setSettings({ ...settings, foamBrainstormTemplate: e.target.value })}
+            />
+
+            <div className="label-row">
+              <label>Icon render template (stage 2 — placeholders {`{concept}`} and {`{happyPlace}`})</label>
               <button
                 type="button"
                 className="restore-link"
@@ -451,8 +537,8 @@ export default function AdminPage() {
             />
 
             <hr className="divider" />
-            <h4 className="sub-title">🖼️ Big-Screen Vibe Image</h4>
-            <p className="hint">Rendered at 4K for the in-cafe big screen. The customer never sees this prompt.</p>
+            <h4 className="sub-title">🖼️ Big-Screen Vibe Image (abstract wallpaper)</h4>
+            <p className="hint">Stage 1: a text model extracts a mood paragraph that NEVER names the subject. Stage 2: the image model renders abstract wallpaper from that mood alone — so it can&apos;t accidentally draw the literal subject.</p>
             <label>Aspect Ratio</label>
             <div className="radio-row">
               {(['16:9', '4:3'] as const).map((opt) => (
@@ -466,8 +552,28 @@ export default function AdminPage() {
                 </button>
               ))}
             </div>
+
             <div className="label-row">
-              <label>Vibe Prompt Template (use {`{happyPlace}`})</label>
+              <label>Mood-extraction instructions (stage 1 — returns abstract mood paragraph)</label>
+              <button
+                type="button"
+                className="restore-link"
+                onClick={() => restoreDefault('vibeMoodTemplate')}
+                title="Replace this field with the built-in default. Click Save to persist."
+              >
+                ⟲ Restore default
+              </button>
+            </div>
+            <textarea
+              rows={6}
+              className="code"
+              value={settings.vibeMoodTemplate}
+              placeholder="Extract an evocative mood paragraph without naming the subject…"
+              onChange={(e) => setSettings({ ...settings, vibeMoodTemplate: e.target.value })}
+            />
+
+            <div className="label-row">
+              <label>Render template (stage 2 — placeholder {`{mood}`})</label>
               <button
                 type="button"
                 className="restore-link"
@@ -481,7 +587,7 @@ export default function AdminPage() {
               rows={4}
               className="code"
               value={settings.vibePromptTemplate}
-              placeholder="A stunning, delightful, magazine-quality photograph capturing the essence of: {happyPlace}…"
+              placeholder="A purely abstract painterly wallpaper that captures this atmosphere: {mood}…"
               onChange={(e) => setSettings({ ...settings, vibePromptTemplate: e.target.value })}
             />
 
@@ -697,6 +803,16 @@ export default function AdminPage() {
         .sub-title { font-size: 0.95rem; color: var(--text); margin: 0; }
         .radio-row { display: flex; gap: 0.5rem; }
         .default-field { display: flex; flex-direction: column; gap: 0.4rem; }
+        .toggle {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.6rem;
+          cursor: pointer;
+          font-size: 0.92rem;
+          color: var(--text);
+          padding: 0.4rem 0;
+        }
+        .toggle input { width: auto; }
         .label-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
         .restore-link {
           background: transparent;

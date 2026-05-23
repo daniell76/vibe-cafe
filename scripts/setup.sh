@@ -100,12 +100,21 @@ gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 green "  ✓ configured"
 echo
 
-cyan "Writing terraform/backend.hcl…"
-cat > terraform/backend.hcl <<EOF
+BACKEND_FILE="terraform/backends/${PROJECT}.hcl"
+cyan "Writing ${BACKEND_FILE}…"
+mkdir -p terraform/backends
+cat > "$BACKEND_FILE" <<EOF
 bucket = "$TF_STATE_BUCKET"
 prefix = "vibe-cafe"
 EOF
-green "  ✓ written"
+green "  ✓ written (per-project file; deploy.sh auto-discovers by gcloud project)"
 echo
 
-green "Setup complete. Next: ./scripts/deploy.sh"
+green "Setup complete for project: $PROJECT"
+echo
+echo "  • To deploy to this project:  ./scripts/deploy.sh"
+echo "  • To set up another project:  gcloud config configurations create <name>;"
+echo "                                gcloud config configurations activate <name>;"
+echo "                                ./scripts/setup.sh <OTHER_PROJECT_ID>"
+echo "  • To switch envs later:       gcloud config configurations activate <name>;"
+echo "                                ./scripts/deploy.sh"

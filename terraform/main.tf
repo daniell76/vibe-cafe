@@ -1,8 +1,8 @@
 terraform {
-  # Backend bucket + prefix are supplied via backend.hcl (gitignored).
-  # Initialise with:  terraform init -backend-config=backend.hcl
-  # See backend.hcl.example for the template. Run scripts/setup.sh to generate
-  # backend.hcl automatically.
+  # Backend bucket + prefix are supplied via terraform/backends/<project>.hcl.
+  # scripts/setup.sh writes that file; scripts/deploy.sh runs:
+  #   terraform init -reconfigure -backend-config=backends/<project>.hcl
+  # so switching environments doesn't require editing any tracked file.
   backend "gcs" {}
 }
 
@@ -42,13 +42,52 @@ resource "google_storage_bucket" "vibe_cafe_images" {
   # public_access_prevention is enforced by org policy, so we'll proxy images via backend
 }
 
-# 3. Cloud Run Service
+# 3. Dedicated runtime service account for Cloud Run.
+# Defining one explicitly (instead of relying on the project's default compute SA)
+# means the deploy is robust on projects where the default SA has had its broad
+# permissions revoked — a default that newer GCP org policies are moving toward.
+resource "google_service_account" "vibe_cafe_runtime" {
+  project      = var.project_id
+  account_id   = "vibe-cafe-runtime"
+  display_name = "Vibe Café Cloud Run runtime"
+  description  = "Runtime identity for the Vibe Café Cloud Run service"
+}
+
+# Least-privilege project-level roles the runtime needs.
+resource "google_project_iam_member" "runtime_firestore" {
+  project = var.project_id
+  role    = "roles/datastore.user" # Firestore (orders, settings, counter)
+  member  = "serviceAccount:${google_service_account.vibe_cafe_runtime.email}"
+}
+
+resource "google_project_iam_member" "runtime_aiplatform" {
+  project = var.project_id
+  role    = "roles/aiplatform.user" # Vertex AI Gemini calls
+  member  = "serviceAccount:${google_service_account.vibe_cafe_runtime.email}"
+}
+
+# Bucket-scoped grant (not project-wide storage admin) — runtime only needs
+# read/write on the image bucket, nothing else.
+resource "google_storage_bucket_iam_member" "runtime_bucket" {
+  bucket = google_storage_bucket.vibe_cafe_images.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.vibe_cafe_runtime.email}"
+}
+
+# 4. Cloud Run Service
 resource "google_cloud_run_v2_service" "vibe_cafe" {
   name     = "vibe-cafe"
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
 
+  # Allow `terraform destroy` to remove the service (e.g. for region migrations).
+  # The google provider defaults this to true on newer versions, which blocks
+  # destroy until an apply is done to flip it.
+  deletion_protection = false
+
   template {
+    service_account = google_service_account.vibe_cafe_runtime.email
+
     containers {
       image = var.container_image
 
@@ -89,5 +128,7 @@ resource "google_cloud_run_v2_service" "vibe_cafe" {
   depends_on = [google_project_service.run]
 }
 
-# 4. Firestore Database (Using existing (default) database)
-# Removed from TF because (default) already exists in this project.
+# 5. Firestore Database (Using existing (default) database)
+# Created by scripts/setup.sh via `gcloud firestore databases create`; not
+# managed here because the (default) DB can't be deleted/recreated cleanly
+# and TF would fight existing state on every project.

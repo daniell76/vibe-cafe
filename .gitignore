@@ -25,6 +25,8 @@ _override.tf
 _override.tf.json
 .terraform.lock.hcl
 terraform/backend.hcl
+terraform/backends/*.hcl
+!terraform/backends/example.hcl
 terraform/tfplan
 terraform/*.tfplan
 
