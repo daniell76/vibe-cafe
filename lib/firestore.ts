@@ -26,6 +26,11 @@ export interface OrderData {
   status?: string;
   orderNumber?: number;
   createdAt?: string;
+  // Stamped server-side by updateOrderStatus when status flips to the
+  // matching value. Tracking pages use these to expire picked-up orders and
+  // to time the "ready" popup.
+  completedAt?: string;
+  pickedUpAt?: string;
 }
 
 export type VibeImageAspect = '16:9' | '4:3';
@@ -61,6 +66,9 @@ export interface AppSettings {
   defaultDrink: string;
   defaultMilk: string;
   defaultAddition: string;
+  // How many landscape tracking screens the store has. Each one renders a
+  // contiguous slice of the global sorted queue at /tracking/<n>.
+  trackingScreens: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -119,6 +127,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultDrink: 'Latte',
   defaultMilk: 'None',
   defaultAddition: 'None',
+  trackingScreens: 1,
 };
 
 export async function saveOrder(orderData: OrderData): Promise<string> {
@@ -137,7 +146,11 @@ export async function saveOrder(orderData: OrderData): Promise<string> {
 
 export async function updateOrderStatus(orderId: string, status: string): Promise<void> {
   const collection = firestore.collection(collectionName);
-  await collection.doc(orderId).update({ status });
+  const update: Record<string, unknown> = { status };
+  // Authoritative timestamps for tracking-page expiry + ready-popup timing.
+  if (status === 'completed') update.completedAt = new Date().toISOString();
+  if (status === 'pickedUp') update.pickedUpAt = new Date().toISOString();
+  await collection.doc(orderId).update(update);
 }
 
 export async function updateOrderFields(orderId: string, fields: Record<string, unknown>): Promise<void> {

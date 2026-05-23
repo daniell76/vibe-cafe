@@ -30,6 +30,7 @@ interface Settings {
   defaultDrink: string;
   defaultMilk: string;
   defaultAddition: string;
+  trackingScreens: number;
 }
 
 interface Order {
@@ -63,6 +64,7 @@ const DEFAULT_SETTINGS: Settings = {
   defaultDrink: 'Latte',
   defaultMilk: 'None',
   defaultAddition: 'None',
+  trackingScreens: 1,
 };
 
 type SidebarKey = 'dashboard' | 'menu' | 'content' | 'printer' | 'analytics';
@@ -284,6 +286,28 @@ export default function AdminPage() {
               <div className="card panel">
                 <h3 className="panel-title brand">🍵 Menu Inventory</h3>
                 <p className="hint">Edit drink categories, milks, additions and toggles in Menu Management.</p>
+              </div>
+
+              <div className="card panel">
+                <h3 className="panel-title brand">📺 Tracking Screens</h3>
+                <p className="hint">
+                  Number of landscape status displays in the store. Each screen serves a contiguous slice of the order queue at <code>/tracking/1</code>, <code>/tracking/2</code>, …
+                </p>
+                <label>Number of screens</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={settings.trackingScreens}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setSettings({
+                      ...settings,
+                      trackingScreens: Number.isFinite(n) && n >= 1 ? Math.min(n, 8) : 1,
+                    });
+                  }}
+                  style={{ maxWidth: 120 }}
+                />
               </div>
 
               <div className="save-bar">
