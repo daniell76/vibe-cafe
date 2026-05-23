@@ -120,10 +120,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     '- Texture words ("velvet", "rough plaster", "molten metal")\n' +
     '- Energy/mood words ("urgent", "languid", "exuberant", "contemplative")',
   vibePromptTemplate:
-    'A purely abstract painterly wallpaper that captures this atmosphere: {mood} ' +
-    'Render entirely with non-figurative brushwork, color gradients, light, textures, particles, and abstract flowing forms. ' +
-    'Premium 4K wallpaper quality, cinematic depth, rich layered color, generous negative space, designed to fill a large landscape screen. ' +
-    'Strictly no text, no words, no letters, no people, no faces, no recognizable objects, no buildings, no logos.',
+    'An abstract wallpaper that captures this atmosphere: {mood} ' +
+    'Choose ONE of two visual languages based on what best fits the mood: ' +
+    '(A) crisp 3D sculptural composition — intersecting geometric planes, crystalline shards, metallic or translucent surfaces, sharp edges, strong directional light; ' +
+    'OR (B) bold 2D editorial illustration — stylised vector forms, flat colour fields, confident graphic shapes, rhythmic flowing lines. ' +
+    'Magazine-cover quality, high contrast, cinematic, premium 4K, designed to fill a large landscape screen. ' +
+    'Do not include words, letters, people, faces, logos, or any recognisable objects.',
   defaultDrink: 'Latte',
   defaultMilk: 'None',
   defaultAddition: 'None',
