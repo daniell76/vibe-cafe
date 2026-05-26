@@ -185,6 +185,15 @@ export default function BaristaPage() {
               const isCompleted = order.status === 'completed';
               const isDownloaded = downloaded.has(order.id);
 
+              // State-machine safeguards (user request 2026-05-26):
+              //   pending  → Complete disabled (must mark Making first)
+              //   completed → Making disabled (must undo Complete first)
+              // Both buttons stay enabled in the 'making' state so the barista
+              // can either step back (undo Making → pending) or step forward
+              // (mark Complete) without an extra click.
+              const makingDisabled = isCompleted;
+              const completeDisabled = !isMaking && !isCompleted;
+
               // Download tri-state per brief p.19:
               //   not-completed → disabled (greyed, not clickable)
               //   completed + never clicked → active blue (primary CTA)
@@ -215,20 +224,34 @@ export default function BaristaPage() {
                     {/* Order locked in by brief p.19: 1. Making, 2. Complete, 3. Download */}
                     <button
                       type="button"
-                      className={`mini-btn ${isMaking ? 'active-making' : ''}`}
+                      className={`mini-btn ${isMaking ? 'active-making' : ''} ${makingDisabled ? 'disabled' : ''}`}
                       onClick={() => toggleMaking(order)}
+                      disabled={makingDisabled}
                       aria-pressed={isMaking}
-                      title={isMaking ? 'Undo making (back to pending)' : 'Mark as making'}
+                      title={
+                        makingDisabled
+                          ? 'Undo Complete first before changing Making'
+                          : isMaking
+                            ? 'Undo making (back to pending)'
+                            : 'Mark as making'
+                      }
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5"/><circle cx="9" cy="7" r="4"/><path d="m19 8 2 2-2 2"/></svg>
                       Making
                     </button>
                     <button
                       type="button"
-                      className={`mini-btn ${isCompleted ? 'active-complete' : ''}`}
+                      className={`mini-btn ${isCompleted ? 'active-complete' : ''} ${completeDisabled ? 'disabled' : ''}`}
                       onClick={() => toggleComplete(order)}
+                      disabled={completeDisabled}
                       aria-pressed={isCompleted}
-                      title={isCompleted ? 'Undo complete (back to making)' : 'Mark as complete'}
+                      title={
+                        completeDisabled
+                          ? 'Mark Making first before Complete'
+                          : isCompleted
+                            ? 'Undo complete (back to making)'
+                            : 'Mark as complete'
+                      }
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                       Complete
@@ -413,13 +436,14 @@ export default function BaristaPage() {
           border-color: var(--border);
         }
         .mini-btn.download.used:hover { color: var(--text); }
-        /* Download disabled state: cannot click. */
-        .mini-btn.download.disabled {
+        /* Generic disabled state for any mini-btn (Making, Complete, Download).
+           Visual cue + cursor; pointer-events also locked by :disabled below. */
+        .mini-btn.disabled {
           color: var(--text-faint);
           border-color: var(--border);
           background: var(--surface);
           cursor: not-allowed;
-          opacity: 0.6;
+          opacity: 0.55;
         }
         .mini-btn:disabled { pointer-events: none; }
         .empty { padding: 3rem; text-align: center; color: var(--text-muted); }
