@@ -186,15 +186,24 @@ export default function TrackingScreenPage() {
             )}
           </p>
         </div>
-        <div className="legend">
-          <span className="legend-item">Received</span>
-          <span className="legend-item">Making</span>
-          <span className="legend-item">Ready</span>
-        </div>
       </div>
 
       <div className="body">
         <div className="rows-wrap">
+          {/* Legend lives inside rows-wrap so it shares the same horizontal
+              layout as each row; the dots-column sub-grid uses the same
+              3-col template as .dots, guaranteeing each label centers
+              directly over its dot. */}
+          <div className="legend-bar" aria-hidden>
+            <span />
+            <span />
+            <div className="legend-dots">
+              <span>Received</span>
+              <span>Making</span>
+              <span>Ready</span>
+            </div>
+          </div>
+
           {outOfRange ? (
             <div className="empty">
               Screen {screenNum} is out of range. The store is configured for {totalScreens}{' '}
@@ -284,16 +293,32 @@ export default function TrackingScreenPage() {
         }
         .brand { color: var(--brand); }
         .screen-tag { color: var(--text-faint); font-size: 0.85rem; margin-left: 0.5rem; }
-        .legend {
-          display: flex;
-          gap: 3rem;
+        .body { display: grid; grid-template-columns: 1fr auto; gap: 1.25rem; align-items: start; }
+        .rows-wrap { min-width: 0; }
+        /* Legend bar mirrors the .row grid template so the dots column is
+           exactly above each row's dots column. The .legend-dots sub-grid
+           uses the same 3 equal columns as .dots → each label centers
+           directly over its corresponding dot. */
+        .legend-bar {
+          display: grid;
+          grid-template-columns: minmax(220px, 1fr) 1fr 280px;
+          align-items: center;
+          gap: 1rem;
+          padding: 0 1.5rem 0.75rem 1.5rem;
+        }
+        .legend-dots {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          align-items: center;
           font-size: 0.72rem;
           letter-spacing: 0.12em;
           text-transform: uppercase;
           color: var(--text-faint);
         }
-        .body { display: grid; grid-template-columns: 1fr auto; gap: 1.25rem; align-items: start; }
-        .rows-wrap { min-width: 0; }
+        .legend-dots > span {
+          text-align: center;
+          white-space: nowrap;
+        }
         .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.85rem; }
         .row {
           background: var(--surface);
@@ -301,7 +326,7 @@ export default function TrackingScreenPage() {
           box-shadow: var(--shadow-sm);
           padding: 1rem 1.5rem;
           display: grid;
-          grid-template-columns: minmax(220px, 1fr) 1fr 200px;
+          grid-template-columns: minmax(220px, 1fr) 1fr 280px;
           align-items: center;
           gap: 1rem;
         }
@@ -334,11 +359,12 @@ export default function TrackingScreenPage() {
           color: var(--g-green);
           font-style: normal;
         }
+        /* 3 equal columns + place-items: center → each dot sits at the
+           middle of its column, aligning with the legend label above. */
         .dots {
-          display: flex;
-          gap: 2rem;
-          justify-content: flex-end;
-          align-items: center;
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          place-items: center;
         }
         .empty { padding: 4rem; text-align: center; color: var(--text-muted); }
 
@@ -411,8 +437,8 @@ export default function TrackingScreenPage() {
 
         @media (max-width: 760px) {
           .row { grid-template-columns: 1fr; }
-          .legend { display: none; }
-          .dots { justify-content: flex-start; }
+          .legend-bar { display: none; }
+          .dots { grid-template-columns: repeat(3, max-content); gap: 1rem; justify-content: flex-start; }
           .body { grid-template-columns: 1fr; }
           .pager { flex-direction: row; justify-content: center; }
           .popup { min-width: 0; width: calc(100vw - 2rem); }
