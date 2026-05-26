@@ -7,11 +7,14 @@ interface Props {
   draft: OrderDraft;
   selectedArt: ArtOption;
   isSubmitting: boolean;
+  // When both Additions and Extra Shots are disabled in admin, the Add-ons row
+  // is omitted entirely (not shown as "None"). Derived from admin settings.
+  showAddOns: boolean;
   onEdit: () => void;
   onSubmit: () => void;
 }
 
-export default function ReviewStep({ draft, selectedArt, isSubmitting, onEdit, onSubmit }: Props) {
+export default function ReviewStep({ draft, selectedArt, isSubmitting, showAddOns, onEdit, onSubmit }: Props) {
   const addOns = (
     draft.addition && draft.addition !== 'None' ? [draft.addition] : []
   );
@@ -48,17 +51,19 @@ export default function ReviewStep({ draft, selectedArt, isSubmitting, onEdit, o
                 </span>
                 <span className="row-val">{milkDisplay}</span>
               </div>
-              <div className="row">
-                <span className="row-key">
-                  <span className="dot plus" aria-hidden>+</span>
-                  Add-ons
-                </span>
-                <div className="addons">
-                  {addOns.length === 0 ? <span className="row-val muted">None</span> : addOns.map((a) => (
-                    <span key={a} className="addon-pill">{a}</span>
-                  ))}
+              {showAddOns && (
+                <div className="row">
+                  <span className="row-key">
+                    <span className="dot plus" aria-hidden>+</span>
+                    Add-ons
+                  </span>
+                  <div className="addons">
+                    {addOns.length === 0 ? <span className="row-val muted">None</span> : addOns.map((a) => (
+                      <span key={a} className="addon-pill">{a}</span>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 

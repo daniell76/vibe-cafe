@@ -312,6 +312,7 @@ export default function OrderingPage() {
           draft={draft}
           selectedArt={artOptions.find((o) => o.id === selectedArtId)!}
           isSubmitting={isSubmitting}
+          showAddOns={settings.additionsEnabled || settings.extraShotsEnabled}
           onEdit={() => setStep('customize')}
           onSubmit={submitOrder}
         />
