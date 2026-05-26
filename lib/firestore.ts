@@ -149,9 +149,11 @@ export async function saveOrder(orderData: OrderData): Promise<string> {
 export async function updateOrderStatus(orderId: string, status: string): Promise<void> {
   const collection = firestore.collection(collectionName);
   const update: Record<string, unknown> = { status };
-  // Authoritative timestamps for tracking-page expiry + ready-popup timing.
+  // Per brief pp.14-19: only 3 active states (pending, making, completed); no
+  // pickedUp. completedAt drives the 3-min auto-expiry on the tracking screen.
+  // Stamp each time status transitions to 'completed' (including after an
+  // undo→redo) so the TTL resets correctly.
   if (status === 'completed') update.completedAt = new Date().toISOString();
-  if (status === 'pickedUp') update.pickedUpAt = new Date().toISOString();
   await collection.doc(orderId).update(update);
 }
 

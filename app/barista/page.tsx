@@ -17,12 +17,14 @@ interface Order {
   createdAt: string;
 }
 
-type Status = 'pending' | 'making' | 'completed' | 'pickedUp';
+// Per brief pp.14-19: no pickedUp state — barista handing the drink to the
+// customer is implicit when the order is marked complete (it shows on the
+// tracking screen as ready for 3 min, then auto-disappears).
+type Status = 'pending' | 'making' | 'completed';
 
 function rowToneClass(status: string) {
   if (status === 'making') return 'tone-making';
   if (status === 'completed') return 'tone-completed';
-  if (status === 'pickedUp') return 'tone-pickedup';
   return 'tone-pending';
 }
 
@@ -30,6 +32,11 @@ export default function BaristaPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // Per brief p.19: after the Download button is first clicked it greys out
+  // (visually muted) but stays clickable. Tracked in component state so the
+  // signal is session-scoped — refreshing resets, which is fine because a
+  // re-download is harmless.
+  const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -67,17 +74,39 @@ export default function BaristaPage() {
     }
   };
 
-  const pending = orders.filter((o) => o.status === 'pending').length;
-  const making = orders.filter((o) => o.status === 'making').length;
-  const ready = orders.filter((o) => o.status === 'completed').length;
+  // Brief p.19: Making and Complete are TOGGLES. Clicking the same status
+  // again "undoes" it (rectifies human error). Clicking the other one moves
+  // forward as expected.
+  const toggleMaking = (order: Order) => {
+    setStatus(order.id, order.status === 'making' ? 'pending' : 'making');
+  };
+  const toggleComplete = (order: Order) => {
+    setStatus(order.id, order.status === 'completed' ? 'making' : 'completed');
+  };
+  const markDownloaded = (id: string) => {
+    setDownloaded((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
 
-  // Show everything; active states first, then picked-up at the bottom (muted).
-  const STATUS_ORDER: Record<string, number> = { pending: 0, making: 1, completed: 2, pickedUp: 3 };
-  const sorted = [...orders].sort(
+  // Drop the legacy 'pickedUp' status entirely (removed in brief pp.14-19).
+  // Existing pre-rework Firestore docs may still carry it; the barista has no
+  // action to take on them, so hide them from the queue.
+  const active = orders.filter((o) => o.status !== 'pickedUp');
+
+  const pending = active.filter((o) => o.status === 'pending').length;
+  const making = active.filter((o) => o.status === 'making').length;
+  const ready = active.filter((o) => o.status === 'completed').length;
+
+  // Pending (new orders, blue) first, then in-progress (yellow), then ready (green).
+  const STATUS_ORDER: Record<string, number> = { pending: 0, making: 1, completed: 2 };
+  const sorted = [...active].sort(
     (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
   );
 
-  // Filter by order number (substring on padded/raw) or customer name (case-insensitive substring).
   const q = search.trim().toLowerCase();
   const visible = q
     ? sorted.filter((o) => {
@@ -151,6 +180,23 @@ export default function BaristaPage() {
                   ? `+${order.extraShots} shot${order.extraShots === 1 ? '' : 's'}`
                   : null,
               ].filter(Boolean) as string[];
+
+              const isMaking = order.status === 'making';
+              const isCompleted = order.status === 'completed';
+              const isDownloaded = downloaded.has(order.id);
+
+              // Download tri-state per brief p.19:
+              //   not-completed → disabled (greyed, not clickable)
+              //   completed + never clicked → active blue (primary CTA)
+              //   completed + already clicked → muted but still clickable
+              const dlClasses = [
+                'mini-btn',
+                'download',
+                isCompleted && !isDownloaded ? 'primary' : '',
+                isCompleted && isDownloaded ? 'used' : '',
+                !isCompleted ? 'disabled' : '',
+              ].filter(Boolean).join(' ');
+
               return (
                 <li key={order.id} className={`row ${tone}`}>
                   <span className="order-num">#{num}</span>
@@ -166,49 +212,61 @@ export default function BaristaPage() {
                     )}
                   </div>
                   <div className="actions">
-                    <a
-                      className={`mini-btn download ${order.status === 'completed' ? 'primary' : ''}`}
-                      href={`/api/order/${order.id}/foam`}
-                      title="Download foam art"
-                      aria-label={`Download foam art for #${num}`}
+                    {/* Order locked in by brief p.19: 1. Making, 2. Complete, 3. Download */}
+                    <button
+                      type="button"
+                      className={`mini-btn ${isMaking ? 'active-making' : ''}`}
+                      onClick={() => toggleMaking(order)}
+                      aria-pressed={isMaking}
+                      title={isMaking ? 'Undo making (back to pending)' : 'Mark as making'}
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                      <span className="dl-label">Download</span>
-                    </a>
-                    {order.status === 'pickedUp' ? (
-                      <span className="completed-tag pickedup">Picked up</span>
-                    ) : order.status === 'completed' ? (
-                      <>
-                        <span className="completed-tag">Ready</span>
-                        <button
-                          className="mini-btn pickup"
-                          onClick={() => setStatus(order.id, 'pickedUp')}
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7"/></svg>
-                          Pick up
-                        </button>
-                      </>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5"/><circle cx="9" cy="7" r="4"/><path d="m19 8 2 2-2 2"/></svg>
+                      Making
+                    </button>
+                    <button
+                      type="button"
+                      className={`mini-btn ${isCompleted ? 'active-complete' : ''}`}
+                      onClick={() => toggleComplete(order)}
+                      aria-pressed={isCompleted}
+                      title={isCompleted ? 'Undo complete (back to making)' : 'Mark as complete'}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      Complete
+                    </button>
+                    {isCompleted ? (
+                      <a
+                        className={dlClasses}
+                        href={`/api/order/${order.id}/foam`}
+                        onClick={() => markDownloaded(order.id)}
+                        title={isDownloaded ? 'Download again' : 'Download foam art'}
+                        aria-label={`Download foam art for #${num}`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        <span className="dl-label">Download</span>
+                      </a>
                     ) : (
-                      <>
-                        <button
-                          className={`mini-btn ${order.status === 'making' ? 'active-making' : ''}`}
-                          onClick={() => setStatus(order.id, 'making')}
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5"/><circle cx="9" cy="7" r="4"/><path d="m19 8 2 2-2 2"/></svg>
-                          Making
-                        </button>
-                        <button
-                          className="mini-btn"
-                          onClick={() => setStatus(order.id, 'completed')}
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                          Complete
-                        </button>
-                      </>
+                      // Render as a disabled <button> instead of an <a>, so the
+                      // browser blocks both the click handler and the underlying
+                      // foam-download GET request — fully inactive until Complete.
+                      <button
+                        type="button"
+                        className={dlClasses}
+                        disabled
+                        aria-disabled
+                        title="Mark order Complete to enable download"
+                        aria-label={`Download foam art for #${num} (disabled — order not complete)`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        <span className="dl-label">Download</span>
+                      </button>
                     )}
                   </div>
                 </li>
@@ -268,7 +326,7 @@ export default function BaristaPage() {
         }
         .table-head, .row {
           display: grid;
-          grid-template-columns: 110px 1fr 1.4fr 300px;
+          grid-template-columns: 110px 1fr 1.4fr 340px;
           align-items: center;
           gap: 1rem;
           padding: 0.85rem 1.5rem;
@@ -291,7 +349,6 @@ export default function BaristaPage() {
         .row.tone-pending { border-color: rgba(66,133,244,0.45); background: rgba(66,133,244,0.04); }
         .row.tone-making { border-color: rgba(251,188,5,0.55); background: rgba(251,188,5,0.06); }
         .row.tone-completed { border-color: rgba(52,168,83,0.45); background: rgba(52,168,83,0.06); }
-        .row.tone-pickedup { border-color: var(--border); background: var(--surface-muted); opacity: 0.65; }
         .order-num {
           font-size: 1.5rem;
           font-weight: 600;
@@ -324,46 +381,47 @@ export default function BaristaPage() {
           color: var(--text-muted);
           cursor: pointer;
           transition: all 0.15s;
-          /* Keep pill shape stable; never let flex squish them. */
           flex-shrink: 0;
           white-space: nowrap;
         }
-        .mini-btn:hover { color: var(--text); border-color: var(--text-muted); }
+        .mini-btn:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
         a.mini-btn { text-decoration: none; }
         .mini-btn.download .dl-label { font-weight: 500; }
-        /* Per design (page 17): when the row is complete, Download becomes the row's
-           primary call-to-action (printing-station BA's next step). */
+        /* Making active: yellow tint when status === 'making'. Click again to undo. */
+        .mini-btn.active-making {
+          color: #b07900;
+          border-color: var(--g-yellow);
+          background: rgba(251,188,5,0.18);
+        }
+        /* Complete active: green tint when status === 'completed'. Click again to undo. */
+        .mini-btn.active-complete {
+          color: var(--g-green);
+          border-color: var(--g-green);
+          background: rgba(52,168,83,0.14);
+        }
+        /* Download primary state: active blue, before first click on a completed order. */
         .mini-btn.download.primary {
           background: var(--brand);
           color: #fff;
           border-color: var(--brand);
         }
         .mini-btn.download.primary:hover { background: var(--brand-hover); border-color: var(--brand-hover); color: #fff; }
-        .mini-btn.active-making {
-          color: #b07900;
-          border-color: var(--g-yellow);
-          background: rgba(251,188,5,0.12);
-        }
-        .completed-tag {
-          padding: 0.4rem 0.95rem;
-          border-radius: 999px;
-          background: rgba(52,168,83,0.15);
-          color: var(--g-green);
-          font-size: 0.85rem;
-          font-weight: 500;
-          flex-shrink: 0;
-          white-space: nowrap;
-        }
-        .completed-tag.pickedup {
+        /* Download "used" state: muted look after first click but still clickable. */
+        .mini-btn.download.used {
           background: var(--surface-muted);
           color: var(--text-muted);
+          border-color: var(--border);
         }
-        .mini-btn.pickup {
-          color: #fff;
-          background: var(--brand);
-          border-color: var(--brand);
+        .mini-btn.download.used:hover { color: var(--text); }
+        /* Download disabled state: cannot click. */
+        .mini-btn.download.disabled {
+          color: var(--text-faint);
+          border-color: var(--border);
+          background: var(--surface);
+          cursor: not-allowed;
+          opacity: 0.6;
         }
-        .mini-btn.pickup:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
+        .mini-btn:disabled { pointer-events: none; }
         .empty { padding: 3rem; text-align: center; color: var(--text-muted); }
         @media (max-width: 760px) {
           .table-head, .row { grid-template-columns: 80px 1fr; }

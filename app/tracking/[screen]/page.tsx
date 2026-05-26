@@ -13,26 +13,26 @@ interface Order {
   orderNumber?: number;
   createdAt: string;
   completedAt?: string;
-  pickedUpAt?: string;
 }
 
 interface Settings {
   trackingScreens: number;
 }
 
+// 3 states only per brief pp.14-19: pending (blue), making (yellow), completed (green).
 const STATUS_INDEX: Record<string, number> = {
   pending: 0,
   making: 1,
   completed: 2,
-  pickedUp: 2,
 };
 
 // Six rows per screen — matches the page-16 design mockup.
 const ROWS_PER_SCREEN = 6;
-// Picked-up orders linger at the bottom of the queue for this long after
-// the barista flips them, then auto-disappear (PDF page-16 spec, adapted
-// from "ready" to "picked-up" since ready now stays until pickup).
-const PICKED_UP_TTL_MS = 3 * 60 * 1000;
+// Completed (ready) orders stay on the tracking dashboard for this long after
+// the barista marks them, then auto-disappear (brief page-1 spec: "Once the
+// order is displayed as ready, it will show for 3 minutes and therefore to
+// disappear from the list").
+const READY_TTL_MS = 3 * 60 * 1000;
 // Popup auto-dismiss duration.
 const POPUP_MS = 5000;
 
@@ -44,10 +44,9 @@ interface PopupItem {
 }
 
 function statusBucket(o: Order): number {
-  // ready (completed but not picked up) at top → making → pending → picked-up
+  // ready (completed) at top → making → pending
   if (o.status === 'completed') return 0;
   if (o.status === 'making') return 1;
-  if (o.status === 'pickedUp') return 3;
   return 2; // pending / unknown
 }
 
@@ -142,19 +141,23 @@ export default function TrackingScreenPage() {
     };
   }, []);
 
-  // Build the global sorted queue: filter expired picked-ups, then sort.
-  // nowTick is a dep so picked-up rows fall off after the TTL even when
+  // Build the global sorted queue:
+  // 1. Drop legacy 'pickedUp' orders entirely (status removed in brief pp.14-19).
+  // 2. Drop 'completed' orders older than READY_TTL_MS (3 min after they went green).
+  // 3. Sort: completed (ready) → making → pending, newest first within each bucket.
+  // nowTick is a dep so ready rows fall off after the TTL even when
   // /api/orders hasn't returned anything new.
   const queue = useMemo(() => {
     const now = nowTick || 0;
     const visible = orders.filter((o) => {
-      if (o.status !== 'pickedUp') return true;
-      if (!o.pickedUpAt) return true; // legacy order with no timestamp — keep visible
-      const t = Date.parse(o.pickedUpAt);
+      if (o.status === 'pickedUp') return false; // legacy status — hide
+      if (o.status !== 'completed') return true;
+      if (!o.completedAt) return true; // completed but no timestamp (pre-feature data) — keep visible
+      const t = Date.parse(o.completedAt);
       if (!Number.isFinite(t)) return true;
       // Before the first tick (now=0), keep everything; the 15 s interval
       // will start filtering as soon as the clock catches up.
-      return now === 0 ? true : now - t < PICKED_UP_TTL_MS;
+      return now === 0 ? true : now - t < READY_TTL_MS;
     });
     visible.sort((a, b) => {
       const ba = statusBucket(a);
@@ -207,9 +210,8 @@ export default function TrackingScreenPage() {
                 const num = o.orderNumber ? String(o.orderNumber).padStart(4, '0') : '----';
                 const idx = STATUS_INDEX[o.status] ?? 0;
                 const isReady = o.status === 'completed';
-                const isPickedUp = o.status === 'pickedUp';
                 return (
-                  <li key={o.id} className={`row ${isPickedUp ? 'pickedup' : ''}`}>
+                  <li key={o.id} className="row">
                     <div className="ident">
                       <div className="thumb">
                         {o.imageUrl ? (
@@ -224,8 +226,8 @@ export default function TrackingScreenPage() {
                       </div>
                     </div>
 
-                    <span className={`status-msg ${isReady ? 'ready' : ''} ${isPickedUp ? 'pickedup' : ''}`}>
-                      {isPickedUp ? 'Picked up ✓' : isReady ? 'Your drink is ready!' : 'Processing...'}
+                    <span className={`status-msg ${isReady ? 'ready' : ''}`}>
+                      {isReady ? 'Your drink is ready!' : 'Processing...'}
                     </span>
 
                     <div className="dots">
@@ -330,12 +332,6 @@ export default function TrackingScreenPage() {
         .status-msg.ready {
           background: rgba(52,168,83,0.12);
           color: var(--g-green);
-          font-style: normal;
-        }
-        .row.pickedup { opacity: 0.55; }
-        .status-msg.pickedup {
-          background: var(--surface-muted);
-          color: var(--text-muted);
           font-style: normal;
         }
         .dots {

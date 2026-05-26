@@ -196,7 +196,9 @@ export default function AdminPage() {
     }
   };
 
-  // "Served" = the drink was finished; covers both ready-for-pickup and already-picked-up.
+  // "Served" = the drink was finished and handed off (status='completed').
+  // pickedUp was removed in the brief pp.14-19 rework — the legacy branch is
+  // kept as a defensive fallback for any leftover historical rows.
   const totalServed = orders.filter(
     (o) => o.status === 'completed' || o.status === 'pickedUp',
   ).length;
