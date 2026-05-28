@@ -202,17 +202,21 @@ export async function getOrder(orderId: string): Promise<Record<string, unknown>
   return doc.exists ? { id: doc.id, ...doc.data() } : null;
 }
 
-export async function getOrders(limit = 100): Promise<Record<string, unknown>[]> {
+export async function getOrders(): Promise<Record<string, unknown>[]> {
   const collection = firestore.collection(collectionName);
-  // orderBy('createdAt', 'desc') is required, otherwise .limit() truncates an
-  // arbitrary set of documents and recently-created orders silently disappear
-  // from /api/orders once the collection grows past `limit`. Single-field
-  // orderBy uses Firestore's auto-managed single-field index — no composite
-  // index needs to be created. saveOrder always stamps createdAt, so no doc
-  // is excluded by the orderBy.
+  // Today's orders only (UTC day boundary). Barista needs to see the whole
+  // day's queue with no row cap; tracking applies its own capacity slicing
+  // on top. Yesterday's orders fall off automatically so back-to-back events
+  // start clean without needing the Nuke button.
+  //
+  // Firestore: a single inequality + orderBy on the SAME field uses the
+  // auto-managed single-field index — no composite index required.
+  // saveOrder always stamps createdAt, so no doc is excluded.
+  const startOfTodayUtc = new Date();
+  startOfTodayUtc.setUTCHours(0, 0, 0, 0);
   const snapshot = await collection
+    .where('createdAt', '>=', startOfTodayUtc.toISOString())
     .orderBy('createdAt', 'desc')
-    .limit(limit)
     .get();
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Record<string, unknown>));
 }

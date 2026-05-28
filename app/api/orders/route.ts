@@ -3,7 +3,7 @@ import { getOrders } from '@/lib/firestore';
 
 export async function GET() {
   try {
-    const orders = await getOrders(20);
+    const orders = await getOrders();
     return NextResponse.json(orders);
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
