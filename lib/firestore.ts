@@ -202,17 +202,19 @@ export async function getOrder(orderId: string): Promise<Record<string, unknown>
   return doc.exists ? { id: doc.id, ...doc.data() } : null;
 }
 
-export async function getOrders(limit = 20): Promise<Record<string, unknown>[]> {
+export async function getOrders(limit = 100): Promise<Record<string, unknown>[]> {
   const collection = firestore.collection(collectionName);
-  // Sort by creation date descending if possible, fallback to standard fetch
-  const snapshot = await collection.limit(limit).get();
-  const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Record<string, unknown>));
-  // In-memory sort to handle potential index absence safely
-  return docs.sort((a, b) => {
-    const dateA = String(a.createdAt || '');
-    const dateB = String(b.createdAt || '');
-    return dateB.localeCompare(dateA);
-  });
+  // orderBy('createdAt', 'desc') is required, otherwise .limit() truncates an
+  // arbitrary set of documents and recently-created orders silently disappear
+  // from /api/orders once the collection grows past `limit`. Single-field
+  // orderBy uses Firestore's auto-managed single-field index — no composite
+  // index needs to be created. saveOrder always stamps createdAt, so no doc
+  // is excluded by the orderBy.
+  const snapshot = await collection
+    .orderBy('createdAt', 'desc')
+    .limit(limit)
+    .get();
+  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Record<string, unknown>));
 }
 
 export async function getOrderByNumber(orderNumber: number): Promise<Record<string, unknown> | null> {
