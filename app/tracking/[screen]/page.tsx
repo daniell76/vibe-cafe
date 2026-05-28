@@ -28,11 +28,6 @@ const STATUS_INDEX: Record<string, number> = {
 
 // Six rows per screen — matches the page-16 design mockup.
 const ROWS_PER_SCREEN = 6;
-// Completed (ready) orders stay on the tracking dashboard for this long after
-// the barista marks them, then auto-disappear (brief page-1 spec: "Once the
-// order is displayed as ready, it will show for 3 minutes and therefore to
-// disappear from the list").
-const READY_TTL_MS = 3 * 60 * 1000;
 // Popup auto-dismiss duration.
 const POPUP_MS = 5000;
 
@@ -58,9 +53,6 @@ export default function TrackingScreenPage() {
   const [settings, setSettings] = useState<Settings>({ trackingScreens: 1 });
   const [isLoading, setIsLoading] = useState(true);
   const [popups, setPopups] = useState<PopupItem[]>([]);
-  // Wall-clock tick driving picked-up TTL expiry. Updated every 15 s in an
-  // effect so render stays pure (read state, not Date.now()).
-  const [nowTick, setNowTick] = useState(0);
 
   // Map of orderId → last-seen status. Used to detect making→completed
   // transitions across polls. `null` means we haven't fetched yet, so we
@@ -129,47 +121,42 @@ export default function TrackingScreenPage() {
     };
   }, [fetchAll]);
 
-  // Drive picked-up TTL expiry independently of the polling cadence.
-  // Seed via setTimeout(0) to satisfy react-hooks/set-state-in-effect;
-  // interval keeps the clock fresh.
-  useEffect(() => {
-    const seed = setTimeout(() => setNowTick(Date.now()), 0);
-    const id = setInterval(() => setNowTick(Date.now()), 15000);
-    return () => {
-      clearTimeout(seed);
-      clearInterval(id);
-    };
-  }, []);
+  const totalScreens = Math.max(1, settings.trackingScreens);
 
-  // Build the global sorted queue:
+  // Build the global sorted queue with capacity-aware expiry (replaces the
+  // earlier fixed 3-min TTL): active orders (pending + making) are never
+  // dropped; completed orders fill the REMAINING slots, newest first, and
+  // older ones silently fall off only when newer orders push them out.
+  //
   // 1. Drop legacy 'pickedUp' orders entirely (status removed in brief pp.14-19).
-  // 2. Drop 'completed' orders older than READY_TTL_MS (3 min after they went green).
-  // 3. Sort: completed (ready) → making → pending, newest first within each bucket.
-  // nowTick is a dep so ready rows fall off after the TTL even when
-  // /api/orders hasn't returned anything new.
+  // 2. Sort: completed (ready) → making → pending. Within the completed bucket
+  //    sort by completedAt (newest first) since "most recently ready" is what
+  //    a customer at the counter cares about; within active buckets sort by
+  //    createdAt.
+  // 3. Capacity = trackingScreens × ROWS_PER_SCREEN. Keep all active orders;
+  //    keep only the newest `capacity - activeCount` completed orders.
   const queue = useMemo(() => {
-    const now = nowTick || 0;
-    const visible = orders.filter((o) => {
-      if (o.status === 'pickedUp') return false; // legacy status — hide
-      if (o.status !== 'completed') return true;
-      if (!o.completedAt) return true; // completed but no timestamp (pre-feature data) — keep visible
-      const t = Date.parse(o.completedAt);
-      if (!Number.isFinite(t)) return true;
-      // Before the first tick (now=0), keep everything; the 15 s interval
-      // will start filtering as soon as the clock catches up.
-      return now === 0 ? true : now - t < READY_TTL_MS;
-    });
+    const visible = orders.filter((o) => o.status !== 'pickedUp');
     visible.sort((a, b) => {
       const ba = statusBucket(a);
       const bb = statusBucket(b);
       if (ba !== bb) return ba - bb;
-      // Newest first within each bucket.
-      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+      const aT = a.status === 'completed' ? (a.completedAt || a.createdAt) : a.createdAt;
+      const bT = b.status === 'completed' ? (b.completedAt || b.createdAt) : b.createdAt;
+      return String(bT || '').localeCompare(String(aT || ''));
     });
-    return visible;
-  }, [orders, nowTick]);
 
-  const totalScreens = Math.max(1, settings.trackingScreens);
+    const totalCapacity = totalScreens * ROWS_PER_SCREEN;
+    const activeCount = visible.filter((o) => o.status !== 'completed').length;
+    const completedBudget = Math.max(0, totalCapacity - activeCount);
+
+    let keptCompleted = 0;
+    return visible.filter((o) => {
+      if (o.status !== 'completed') return true; // active orders always kept
+      if (keptCompleted < completedBudget) { keptCompleted++; return true; }
+      return false; // overflow completed — drop oldest first (already sorted newest→oldest)
+    });
+  }, [orders, totalScreens]);
   const outOfRange = screenNum > totalScreens;
   const start = (screenNum - 1) * ROWS_PER_SCREEN;
   const slice = outOfRange ? [] : queue.slice(start, start + ROWS_PER_SCREEN);
