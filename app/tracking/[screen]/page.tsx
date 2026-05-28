@@ -141,20 +141,25 @@ export default function TrackingScreenPage() {
       const ba = statusBucket(a);
       const bb = statusBucket(b);
       if (ba !== bb) return ba - bb;
-      const aT = a.status === 'completed' ? (a.completedAt || a.createdAt) : a.createdAt;
-      const bT = b.status === 'completed' ? (b.completedAt || b.createdAt) : b.createdAt;
-      return String(bT || '').localeCompare(String(aT || ''));
+      // Ascending by order number within each bucket — matches brief p.16
+      // mockup (#01 #02 #03 ready, #04 #25 #26 processing).
+      const an = a.orderNumber ?? Number.MAX_SAFE_INTEGER;
+      const bn = b.orderNumber ?? Number.MAX_SAFE_INTEGER;
+      return an - bn;
     });
 
     const totalCapacity = totalScreens * ROWS_PER_SCREEN;
-    const activeCount = visible.filter((o) => o.status !== 'completed').length;
+    const completedCount = visible.filter((o) => o.status === 'completed').length;
+    const activeCount = visible.length - completedCount;
     const completedBudget = Math.max(0, totalCapacity - activeCount);
-
-    let keptCompleted = 0;
+    // With ascending order-number sort, completed orders run oldest → newest.
+    // Drop the FIRST (oldest) overflow completeds; keep the LAST `budget`.
+    const dropCount = Math.max(0, completedCount - completedBudget);
+    let dropped = 0;
     return visible.filter((o) => {
       if (o.status !== 'completed') return true; // active orders always kept
-      if (keptCompleted < completedBudget) { keptCompleted++; return true; }
-      return false; // overflow completed — drop oldest first (already sorted newest→oldest)
+      if (dropped < dropCount) { dropped++; return false; }
+      return true;
     });
   }, [orders, totalScreens]);
   const outOfRange = screenNum > totalScreens;
