@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SpeechClient } from '@google-cloud/speech';
+import speech from '@google-cloud/speech';
+
+// @google-cloud/speech v7's default export `SpeechClient` is the v2 API,
+// which uses a different request shape ({ recognizer, config, content })
+// than the v1 shape we send below ({ audio, config }). Pin to v1
+// explicitly so the inline-config recognize call we make matches.
+type SpeechClient = InstanceType<typeof speech.v1.SpeechClient>;
 
 // Lazy init — same pattern as lib/vertex-ai.ts. Lets the build run on
 // machines without ADC and fails loudly at request time if GOOGLE_CLOUD_PROJECT
@@ -10,7 +16,7 @@ function client(): SpeechClient {
   if (!process.env.GOOGLE_CLOUD_PROJECT) {
     throw new Error('GOOGLE_CLOUD_PROJECT is not set — Speech API client cannot be initialised.');
   }
-  _client = new SpeechClient();
+  _client = new speech.v1.SpeechClient();
   return _client;
 }
 
