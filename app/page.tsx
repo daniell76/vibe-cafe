@@ -79,6 +79,10 @@ export default function OrderingPage() {
           defaultDrink: data.defaultDrink ?? DEFAULT_ORDER_SETTINGS.defaultDrink,
           defaultMilk: data.defaultMilk ?? DEFAULT_ORDER_SETTINGS.defaultMilk,
           defaultAddition: data.defaultAddition ?? DEFAULT_ORDER_SETTINGS.defaultAddition,
+          coffeeArtBypassSeconds:
+            typeof data.coffeeArtBypassSeconds === 'number' && data.coffeeArtBypassSeconds > 0
+              ? data.coffeeArtBypassSeconds
+              : DEFAULT_ORDER_SETTINGS.coffeeArtBypassSeconds,
         });
         // Only seed draft defaults if the user hasn't already started a draft
         // (i.e. we just hydrated an empty draft from a fresh session).

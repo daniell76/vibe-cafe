@@ -36,6 +36,7 @@ interface Settings {
   defaultAddition: string;
   trackingScreens: number;
   readyTtlMinutes: number;
+  coffeeArtBypassSeconds: number;
 }
 
 interface Order {
@@ -71,6 +72,7 @@ const DEFAULT_SETTINGS: Settings = {
   defaultAddition: 'None',
   trackingScreens: 1,
   readyTtlMinutes: 5,
+  coffeeArtBypassSeconds: 30,
 };
 
 type SidebarKey = 'dashboard' | 'menu' | 'content' | 'printer' | 'gallery' | 'analytics';
@@ -440,6 +442,25 @@ export default function AdminPage() {
                     setSettings({
                       ...settings,
                       readyTtlMinutes: Number.isFinite(n) && n >= 1 ? Math.min(n, 60) : 5,
+                    });
+                  }}
+                  style={{ maxWidth: 120 }}
+                />
+
+                <label style={{ marginTop: '0.75rem' }}>Coffee-art wait before bypass (seconds)</label>
+                <p className="hint" style={{ marginTop: '-0.25rem' }}>
+                  How long a customer waits on the art-select loader before the &ldquo;Skip and submit order&rdquo; button appears.
+                </p>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  value={settings.coffeeArtBypassSeconds}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setSettings({
+                      ...settings,
+                      coffeeArtBypassSeconds: Number.isFinite(n) && n >= 5 ? Math.min(n, 300) : 30,
                     });
                   }}
                   style={{ maxWidth: 120 }}

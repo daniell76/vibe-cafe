@@ -42,6 +42,9 @@ export interface OrderSettings {
   defaultDrink: string;
   defaultMilk: string;
   defaultAddition: string;
+  // Seconds before the art-select loader shows the "Skip and submit" CTA.
+  // Configured in admin; falls back to 30 if missing.
+  coffeeArtBypassSeconds: number;
 }
 
 export const DEFAULT_ORDER_SETTINGS: OrderSettings = {
@@ -70,4 +73,5 @@ export const DEFAULT_ORDER_SETTINGS: OrderSettings = {
   defaultDrink: 'Latte',
   defaultMilk: 'None',
   defaultAddition: 'None',
+  coffeeArtBypassSeconds: 30,
 };

@@ -5,9 +5,10 @@ import { useEffect, useState } from 'react';
 import VibeLoader from '@/components/VibeLoader';
 import { ArtOption, OrderSettings } from './types';
 
-// After this many seconds of generation, surface a "Skip & continue" CTA so
-// customers don't get stuck staring at the loader (feedback item #2).
-const BYPASS_DELAY_MS = 30000;
+// How many seconds the customer must wait before the "Skip & continue" CTA
+// appears under the loader (feedback item #2). Admin-configurable via
+// settings.coffeeArtBypassSeconds; falls back to 30 s if missing or invalid.
+const FALLBACK_BYPASS_SECONDS = 30;
 
 interface Props {
   options: ArtOption[];
@@ -26,19 +27,23 @@ interface Props {
 export default function ArtSelectStep({ options, selectedId, isLoading, settings, onSelect, onBack, onNext, onRegenerate, onBypass }: Props) {
   const [showBypass, setShowBypass] = useState(false);
 
-  // Reveal the bypass button after BYPASS_DELAY_MS of continuous loading.
-  // Reset (with the same setTimeout(0) deferral pattern used elsewhere in
-  // this codebase) when loading flips off — satisfies
+  // Reveal the bypass button after `coffeeArtBypassSeconds` of continuous
+  // loading. Reset (with the same setTimeout(0) deferral pattern used
+  // elsewhere in this codebase) when loading flips off — satisfies
   // react-hooks/set-state-in-effect which disallows synchronous setState
   // inside an effect body.
+  const bypassSeconds =
+    typeof settings.coffeeArtBypassSeconds === 'number' && settings.coffeeArtBypassSeconds > 0
+      ? settings.coffeeArtBypassSeconds
+      : FALLBACK_BYPASS_SECONDS;
   useEffect(() => {
     if (!isLoading) {
       const reset = setTimeout(() => setShowBypass(false), 0);
       return () => clearTimeout(reset);
     }
-    const t = setTimeout(() => setShowBypass(true), BYPASS_DELAY_MS);
+    const t = setTimeout(() => setShowBypass(true), bypassSeconds * 1000);
     return () => clearTimeout(t);
-  }, [isLoading]);
+  }, [isLoading, bypassSeconds]);
 
   // Per page-11 comment: during loading, hide the page header AND the action
   // buttons — only the VibeLoader is visible. After BYPASS_DELAY_MS we add

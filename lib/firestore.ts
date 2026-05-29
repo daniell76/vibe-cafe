@@ -106,6 +106,10 @@ export interface AppSettings {
   // dashboard before auto-disappearing. Applied IN ADDITION to the
   // capacity cap — whichever fires first wins.
   readyTtlMinutes: number;
+  // How long (seconds) the customer must wait on the art-select loader
+  // before the "Skip and submit order" CTA appears. Configurable so
+  // operators can tune for slow networks or impatient queues.
+  coffeeArtBypassSeconds: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -185,6 +189,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultAddition: 'None',
   trackingScreens: 1,
   readyTtlMinutes: 5,
+  coffeeArtBypassSeconds: 30,
 };
 
 export async function saveOrder(orderData: OrderData): Promise<string> {
