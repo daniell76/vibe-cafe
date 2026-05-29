@@ -216,11 +216,15 @@ export default function OrderingPage() {
     setVibeImageUrl(null);
     setSelectedArtId(null);
     setIsGenerating(false);
-    await submitOrder(true);
+    await submitOrder({ bypass: true });
   };
 
-  const submitOrder = async (bypass = false) => {
-    const isNoFoam = bypass || !currentDrinkHasFoam();
+  // Options object (not a bare boolean) so callers can't accidentally pass a
+  // React SyntheticEvent — onClick={submitOrder} would forward the event into
+  // `bypass`, which then leaks into the JSON body and trips JSON.stringify
+  // on the circular React Fiber. Bug surfaced 2026-05-29 via ReviewStep.
+  const submitOrder = async (opts: { bypass?: boolean } = {}) => {
+    const isNoFoam = opts.bypass === true || !currentDrinkHasFoam();
     // For foam drinks we need a selected art before we can submit. For no-foam
     // drinks the wizard skipped art-select, so there's no selection to wait on.
     const selected = artOptions.find((o) => o.id === selectedArtId);
@@ -358,7 +362,7 @@ export default function OrderingPage() {
           isSubmitting={isSubmitting}
           showAddOns={settings.additionsEnabled || settings.extraShotsEnabled}
           onEdit={() => setStep('customize')}
-          onSubmit={submitOrder}
+          onSubmit={() => submitOrder()}
         />
       )}
 
