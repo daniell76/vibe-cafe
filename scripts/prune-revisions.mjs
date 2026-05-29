@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Prune old Cloud Run revisions, keeping the latest N (default 3).
+ * Prune old Cloud Run revisions, keeping the latest N (default 5).
  *
  * Usage:
- *   node scripts/prune-revisions.mjs                 # keep 3, delete the rest
- *   KEEP=5 node scripts/prune-revisions.mjs          # keep the latest 5
+ *   node scripts/prune-revisions.mjs                 # keep 5, delete the rest
+ *   KEEP=3 node scripts/prune-revisions.mjs          # keep the latest 3
  *   DRY_RUN=1 node scripts/prune-revisions.mjs       # show what would happen, don't delete
  *
  * Safety:
@@ -13,11 +13,11 @@
  *   - Refuses to delete the LATEST revision (Cloud Run requires at least one).
  *
  * Env:
- *   PROJECT    project id        (default: cs-poc-r09bfysmbhuoftvjja2mxk2)
+ *   PROJECT    project id        (default: active gcloud project)
  *   REGION     Cloud Run region  (default: europe-west4)
  *   SERVICE    service name      (default: vibe-cafe)
- *   ACCOUNT    gcloud account    (default: daniel@danielxia.altostrat.com)
- *   KEEP       revisions to keep (default: 3)
+ *   ACCOUNT    gcloud account    (default: active gcloud account)
+ *   KEEP       revisions to keep (default: 5)
  *   DRY_RUN    "1" to skip deletes
  */
 import { execSync } from 'node:child_process';
@@ -35,7 +35,7 @@ if (!PROJECT) {
   console.error('PROJECT not set. Either export PROJECT=<id> or set the active gcloud project.');
   process.exit(1);
 }
-const KEEP = Math.max(1, parseInt(process.env.KEEP || '3', 10));
+const KEEP = Math.max(1, parseInt(process.env.KEEP || '5', 10));
 const DRY_RUN = process.env.DRY_RUN === '1';
 
 const BASE = `https://run.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/services/${SERVICE}`;

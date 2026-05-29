@@ -126,6 +126,6 @@ fi
 
 if [ "$PRUNE" = "1" ]; then
   echo
-  cyan "Pruning old revisions (keep latest 3; set PRUNE=0 to skip)…"
+  cyan "Pruning old revisions (keep latest 5; set PRUNE=0 to skip)…"
   PROJECT="$PROJECT" REGION="$REGION" SERVICE="$SERVICE" node scripts/prune-revisions.mjs || true
 fi
