@@ -768,10 +768,14 @@ export default function AdminPage() {
             </p>
 
             <div className="gallery-views">
+              {/* "By order" / grouped view is hidden for now — order numbers
+                  collide after the Reset button is used, so grouping by
+                  orderNumber stops making sense. The /api/admin/gallery
+                  ?view=grouped path is left intact for when we want to
+                  re-enable it (e.g. once we key groups by orderId instead). */}
               {([
                 { v: 'foam', label: 'Coffee art' },
                 { v: 'vibe', label: 'Big screen' },
-                { v: 'grouped', label: 'By order' },
               ] as Array<{ v: GalleryView; label: string }>).map(({ v, label }) => (
                 <button
                   key={v}
