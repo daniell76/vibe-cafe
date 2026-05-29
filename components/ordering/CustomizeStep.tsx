@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useState } from 'react';
 import { OrderDraft, OrderSettings } from './types';
 import CategorizedSelect from './CategorizedSelect';
 
@@ -10,8 +11,79 @@ interface Props {
   onNext: () => void;
 }
 
+type MicState = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'error';
+
 export default function CustomizeStep({ draft, settings, onChange, onNext }: Props) {
   const canContinue = draft.name.trim().length > 0 && draft.happyPlace.trim().length > 0;
+
+  const [micState, setMicState] = useState<MicState>('idle');
+  const [micError, setMicError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // Voice input via GCP Speech-to-Text (feedback item #1, 2026-05-29). The
+  // browser captures audio with MediaRecorder (default: WebM/Opus) and POSTs
+  // the raw bytes to /api/transcribe, which forwards to the Speech API.
+  const startRecording = async () => {
+    setMicError(null);
+    setMicState('requesting');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const rec = new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        // Release the mic immediately so the browser indicator goes away.
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        if (blob.size === 0) { setMicState('idle'); return; }
+        setMicState('transcribing');
+        try {
+          const res = await fetch('/api/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'audio/webm' },
+            body: blob,
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+          const text = (data.transcript || '').trim();
+          if (text) {
+            // Append to existing text rather than overwrite, separated with
+            // a space if the textarea already has content.
+            const sep = draft.happyPlace && !/\s$/.test(draft.happyPlace) ? ' ' : '';
+            onChange({ ...draft, happyPlace: draft.happyPlace + sep + text });
+          }
+          setMicState('idle');
+        } catch (err) {
+          console.error('Transcribe failed', err);
+          setMicError(err instanceof Error ? err.message : 'Transcribe failed');
+          setMicState('error');
+        }
+      };
+      rec.start();
+      recorderRef.current = rec;
+      setMicState('recording');
+    } catch (err) {
+      console.error('Microphone access denied', err);
+      setMicError(err instanceof Error ? err.message : 'Microphone access denied');
+      setMicState('error');
+    }
+  };
+
+  const stopRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    }
+  };
+
+  const onMicClick = () => {
+    if (micState === 'recording') stopRecording();
+    else if (micState === 'idle' || micState === 'error') startRecording();
+  };
 
   // Per page-10 comment: the admin explicitly toggles whether Additions / Extra
   // Shots are shown to customers. Items themselves are pre-populated so the
@@ -132,14 +204,51 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
               {settings.aiInspirationHint}
             </div>
 
-            <textarea
-              id="happy"
-              aria-label="Happy place"
-              rows={5}
-              value={draft.happyPlace}
-              placeholder={settings.aiInspirationPlaceholder}
-              onChange={(e) => onChange({ ...draft, happyPlace: e.target.value })}
-            />
+            <div className="textarea-wrap">
+              <textarea
+                id="happy"
+                aria-label="Happy place"
+                rows={5}
+                value={draft.happyPlace}
+                placeholder={settings.aiInspirationPlaceholder}
+                onChange={(e) => onChange({ ...draft, happyPlace: e.target.value })}
+              />
+              <button
+                type="button"
+                className={`mic-btn mic-${micState}`}
+                onClick={onMicClick}
+                aria-label={
+                  micState === 'recording' ? 'Stop recording' :
+                  micState === 'transcribing' ? 'Transcribing…' :
+                  'Speak to dictate'
+                }
+                disabled={micState === 'transcribing' || micState === 'requesting'}
+                title={
+                  micState === 'recording' ? 'Click to stop' :
+                  micState === 'transcribing' ? 'Transcribing…' :
+                  micState === 'error' ? (micError || 'Mic error — try again') :
+                  'Tap to dictate with your voice'
+                }
+              >
+                {micState === 'recording' ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <rect x="6" y="6" width="12" height="12" rx="1" />
+                  </svg>
+                ) : micState === 'transcribing' || micState === 'requesting' ? (
+                  <span className="mic-spinner" aria-hidden />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+            {micState === 'error' && micError && (
+              <span className="mic-error" role="alert">{micError}</span>
+            )}
 
             <button
               type="button"
@@ -198,10 +307,53 @@ export default function CustomizeStep({ draft, settings, onChange, onNext }: Pro
           color: var(--text-muted);
           line-height: 1.45;
         }
+        .textarea-wrap { position: relative; }
         .inspiration textarea {
           min-height: 180px;
           resize: vertical;
+          padding-right: 3.25rem; /* keep room for the mic button */
         }
+        .mic-btn {
+          position: absolute;
+          right: 0.6rem;
+          bottom: 0.65rem;
+          width: 36px; height: 36px;
+          border-radius: 50%;
+          border: 1px solid var(--border-strong);
+          background: var(--surface);
+          color: var(--text-muted);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .mic-btn:hover:not(:disabled) { color: var(--brand); border-color: var(--brand); background: var(--brand-soft); }
+        .mic-btn:disabled { cursor: progress; }
+        .mic-btn.mic-recording {
+          color: #fff;
+          background: var(--g-red);
+          border-color: var(--g-red);
+          animation: mic-pulse 1.2s ease-in-out infinite;
+        }
+        .mic-btn.mic-error { color: var(--g-red); border-color: var(--g-red); }
+        .mic-spinner {
+          width: 14px; height: 14px;
+          border-radius: 50%;
+          border: 2px solid var(--border);
+          border-top-color: var(--brand);
+          animation: mic-spin 0.8s linear infinite;
+        }
+        .mic-error {
+          color: var(--g-red);
+          font-size: 0.78rem;
+          margin-top: -0.25rem;
+        }
+        @keyframes mic-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(234,67,53,0.55); }
+          50%      { box-shadow: 0 0 0 6px rgba(234,67,53,0.05); }
+        }
+        @keyframes mic-spin { to { transform: rotate(360deg); } }
         .next-btn {
           margin-top: 0.25rem;
           padding: 0.9rem;

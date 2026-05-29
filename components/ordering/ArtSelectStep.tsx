@@ -1,8 +1,13 @@
 'use client';
 
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
 import VibeLoader from '@/components/VibeLoader';
 import { ArtOption, OrderSettings } from './types';
+
+// After this many seconds of generation, surface a "Skip & continue" CTA so
+// customers don't get stuck staring at the loader (feedback item #2).
+const BYPASS_DELAY_MS = 30000;
 
 interface Props {
   options: ArtOption[];
@@ -13,15 +18,58 @@ interface Props {
   onBack: () => void;
   onNext: () => void;
   onRegenerate: () => void;
+  // When the customer hits "Skip & continue", submit immediately with no foam
+  // image. Same UX downstream as a hasFoam=false drink.
+  onBypass: () => void;
 }
 
-export default function ArtSelectStep({ options, selectedId, isLoading, settings, onSelect, onBack, onNext, onRegenerate }: Props) {
+export default function ArtSelectStep({ options, selectedId, isLoading, settings, onSelect, onBack, onNext, onRegenerate, onBypass }: Props) {
+  const [showBypass, setShowBypass] = useState(false);
+
+  // Reveal the bypass button after BYPASS_DELAY_MS of continuous loading.
+  // Reset (with the same setTimeout(0) deferral pattern used elsewhere in
+  // this codebase) when loading flips off — satisfies
+  // react-hooks/set-state-in-effect which disallows synchronous setState
+  // inside an effect body.
+  useEffect(() => {
+    if (!isLoading) {
+      const reset = setTimeout(() => setShowBypass(false), 0);
+      return () => clearTimeout(reset);
+    }
+    const t = setTimeout(() => setShowBypass(true), BYPASS_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [isLoading]);
+
   // Per page-11 comment: during loading, hide the page header AND the action
-  // buttons — only the VibeLoader should be visible. Both reappear once ready.
+  // buttons — only the VibeLoader is visible. After BYPASS_DELAY_MS we add
+  // a small "Skip & continue" link underneath so the customer can move on.
   if (isLoading) {
     return (
       <div className="art-step">
         <VibeLoader caption="Generating four custom designs from your vibe…" />
+        {showBypass && (
+          <div className="bypass-row">
+            <p className="bypass-hint">Taking longer than usual?</p>
+            <button type="button" className="btn btn-ghost bypass-btn" onClick={onBypass}>
+              Skip and submit order →
+            </button>
+            <p className="bypass-fine">Your drink will be served without printed foam art.</p>
+          </div>
+        )}
+        <style jsx>{`
+          .bypass-row {
+            margin: 1.5rem auto 0;
+            max-width: 360px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.4rem;
+          }
+          .bypass-hint { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+          .bypass-btn { padding: 0.55rem 1.1rem; font-size: 0.92rem; }
+          .bypass-fine { color: var(--text-faint); font-size: 0.78rem; margin: 0; }
+        `}</style>
       </div>
     );
   }

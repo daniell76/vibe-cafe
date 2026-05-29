@@ -73,15 +73,23 @@ const DEFAULT_SETTINGS: Settings = {
   readyTtlMinutes: 5,
 };
 
-type SidebarKey = 'dashboard' | 'menu' | 'content' | 'printer' | 'analytics';
+type SidebarKey = 'dashboard' | 'menu' | 'content' | 'printer' | 'gallery' | 'analytics';
 
 const SIDEBAR: { key: SidebarKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'menu', label: 'Menu Management' },
   { key: 'content', label: 'Content' },
+  { key: 'gallery', label: 'Gallery' },
   { key: 'printer', label: 'Printer' },
   { key: 'analytics', label: 'Analytics' },
 ];
+
+interface GalleryImage {
+  name: string;
+  url: string;
+  size: number;
+  createdAt: string;
+}
 
 export default function AdminPage() {
   const [section, setSection] = useState<SidebarKey>('dashboard');
@@ -95,6 +103,9 @@ export default function AdminPage() {
   const [nukeResult, setNukeResult] = useState<string | null>(null);
   const [isResettingCounter, setIsResettingCounter] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  const [galleryAll, setGalleryAll] = useState(false);
+  const [galleryLoading, setGalleryLoading] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -119,6 +130,28 @@ export default function AdminPage() {
       console.error('Failed to fetch orders', err);
     }
   }, []);
+
+  const fetchGallery = useCallback(async (showAll: boolean) => {
+    setGalleryLoading(true);
+    try {
+      const res = await fetch(`/api/admin/gallery${showAll ? '?all=1' : ''}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGalleryImages(Array.isArray(data.images) ? data.images : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch gallery', err);
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, []);
+
+  // Lazy-load gallery when the user clicks into the section.
+  useEffect(() => {
+    if (section !== 'gallery') return;
+    const t = setTimeout(() => fetchGallery(galleryAll), 0);
+    return () => clearTimeout(t);
+  }, [section, galleryAll, fetchGallery]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -684,6 +717,65 @@ export default function AdminPage() {
           </div>
         )}
 
+        {section === 'gallery' && (
+          <div className="card panel">
+            <h3 className="panel-title brand">🖼 Gallery</h3>
+            <p className="hint">
+              All coffee-art and vibe-booth images generated for orders. Click an image to view full size, or use the download button per tile.
+            </p>
+            <div className="gallery-bar">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={galleryAll}
+                  onChange={(e) => setGalleryAll(e.target.checked)}
+                />
+                <span>Show all (not just today)</span>
+              </label>
+              <span className="gallery-count">
+                {galleryLoading ? 'Loading…' : `${galleryImages.length} image${galleryImages.length === 1 ? '' : 's'}`}
+              </span>
+            </div>
+            {galleryImages.length === 0 && !galleryLoading ? (
+              <p className="empty">No images yet.</p>
+            ) : (
+              <div className="gallery-grid">
+                {galleryImages.map((img) => {
+                  // Extract a readable label from the GCS key
+                  // (e.g. "vibes/order-XYZ-123.png" → "vibes / order-XYZ-…").
+                  const filename = img.name.split('/').pop() || img.name;
+                  const niceName = filename.replace(/\.[a-z]+$/i, '');
+                  const kb = (img.size / 1024).toFixed(0);
+                  return (
+                    <div key={img.name} className="g-tile">
+                      <a href={img.url} target="_blank" rel="noreferrer" className="g-thumb-link">
+                        <Image src={img.url} alt={niceName} width={220} height={220} unoptimized />
+                      </a>
+                      <div className="g-meta">
+                        <span className="g-name" title={img.name}>{niceName}</span>
+                        <span className="g-size">{kb} KB</span>
+                      </div>
+                      <a
+                        href={img.url}
+                        download={filename}
+                        className="g-dl"
+                        aria-label={`Download ${filename}`}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        Download
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {section === 'printer' && (
           <div className="card panel">
             <h3 className="panel-title brand">🖨 Coffee Printer</h3>
@@ -889,6 +981,62 @@ export default function AdminPage() {
         .m-value { font-size: 1.75rem; font-weight: 700; }
         .sub { margin: 1rem 0 0.5rem 0; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.1em; }
         .gallery { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
+
+        .gallery-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-bottom: 0.75rem;
+          margin-top: 0.5rem;
+        }
+        .gallery-count { font-size: 0.85rem; color: var(--text-muted); }
+        .gallery-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 0.85rem;
+        }
+        .g-tile {
+          display: flex;
+          flex-direction: column;
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          overflow: hidden;
+          background: var(--surface);
+        }
+        .g-thumb-link {
+          display: block;
+          aspect-ratio: 1 / 1;
+          background: #111;
+        }
+        .g-thumb-link :global(img) { width: 100%; height: 100%; object-fit: cover; }
+        .g-meta {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 0.4rem;
+          padding: 0.45rem 0.6rem 0.1rem;
+          font-size: 0.78rem;
+          min-width: 0;
+        }
+        .g-name {
+          color: var(--text);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          min-width: 0;
+          flex: 1;
+        }
+        .g-size { color: var(--text-faint); flex-shrink: 0; }
+        .g-dl {
+          padding: 0.35rem 0.6rem 0.55rem;
+          font-size: 0.78rem;
+          color: var(--brand);
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+        }
+        .g-dl:hover { color: var(--brand-hover); text-decoration: underline; }
         .gallery-item { aspect-ratio: 1; background: #111; border-radius: 8px; overflow: hidden; }
         .gallery-item :global(img) { width: 100%; height: 100%; object-fit: cover; }
 

@@ -208,8 +208,19 @@ export default function OrderingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepHydrated]);
 
-  const submitOrder = async () => {
-    const isNoFoam = !currentDrinkHasFoam();
+  // Tester-feedback bypass: customer gets impatient after 30 s of generation,
+  // hits Skip & submit. Same effect as a no-foam drink — order goes through
+  // with no imageUrl, barista row shows the "no foam" tag, Download disabled.
+  const bypassWithoutArt = async () => {
+    setArtOptions([]);
+    setVibeImageUrl(null);
+    setSelectedArtId(null);
+    setIsGenerating(false);
+    await submitOrder(true);
+  };
+
+  const submitOrder = async (bypass = false) => {
+    const isNoFoam = bypass || !currentDrinkHasFoam();
     // For foam drinks we need a selected art before we can submit. For no-foam
     // drinks the wizard skipped art-select, so there's no selection to wait on.
     const selected = artOptions.find((o) => o.id === selectedArtId);
@@ -336,6 +347,7 @@ export default function OrderingPage() {
           onBack={() => setStep('customize')}
           onNext={() => setStep('review')}
           onRegenerate={regenerate}
+          onBypass={bypassWithoutArt}
         />
       )}
 

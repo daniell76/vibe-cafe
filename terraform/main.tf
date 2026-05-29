@@ -32,6 +32,13 @@ resource "google_project_service" "run" {
   disable_on_destroy = false
 }
 
+# Cloud Speech-to-Text — voice input on the AI Inspiration textarea
+# (tester feedback item #1, 2026-05-29).
+resource "google_project_service" "speech" {
+  service = "speech.googleapis.com"
+  disable_on_destroy = false
+}
+
 # 2. Cloud Storage Bucket for Images
 resource "google_storage_bucket" "vibe_cafe_images" {
   name          = var.bucket_name
