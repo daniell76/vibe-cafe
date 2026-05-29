@@ -31,6 +31,7 @@ interface Settings {
   defaultMilk: string;
   defaultAddition: string;
   trackingScreens: number;
+  readyTtlMinutes: number;
 }
 
 interface Order {
@@ -65,6 +66,7 @@ const DEFAULT_SETTINGS: Settings = {
   defaultMilk: 'None',
   defaultAddition: 'None',
   trackingScreens: 1,
+  readyTtlMinutes: 5,
 };
 
 type SidebarKey = 'dashboard' | 'menu' | 'content' | 'printer' | 'analytics';
@@ -87,6 +89,8 @@ export default function AdminPage() {
   const [nukeConfirmText, setNukeConfirmText] = useState('');
   const [isNuking, setIsNuking] = useState(false);
   const [nukeResult, setNukeResult] = useState<string | null>(null);
+  const [isResettingCounter, setIsResettingCounter] = useState(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -181,6 +185,29 @@ export default function AdminPage() {
     setNukeResult(null);
   };
 
+  // Reset the order-number counter so the next order starts at 1. Doesn't
+  // touch existing orders (use Nuke for that).
+  const resetCounter = async () => {
+    if (!window.confirm('Reset order number counter to 0?\n\nThe next order will be #1. Existing orders are NOT deleted.')) return;
+    setIsResettingCounter(true);
+    setResetMsg(null);
+    try {
+      const res = await fetch('/api/admin/reset-counter', { method: 'POST' });
+      if (res.ok) {
+        setResetMsg('Counter reset — next order will be #1.');
+        setTimeout(() => setResetMsg(null), 4000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setResetMsg(`Failed: ${data.error || res.statusText}`);
+      }
+    } catch (err) {
+      console.error('Reset counter error:', err);
+      setResetMsg('Network error.');
+    } finally {
+      setIsResettingCounter(false);
+    }
+  };
+
   // Pull the source-of-truth default for a single settings field and stage
   // it into local state. User still needs to click Save to persist.
   const restoreDefault = async (field: keyof Settings) => {
@@ -209,7 +236,7 @@ export default function AdminPage() {
       const k = o.coffeeOrder || 'Other';
       counts[k] = (counts[k] || 0) + 1;
     }
-    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
   }, [orders]);
 
   return (
@@ -236,6 +263,15 @@ export default function AdminPage() {
         <div className="sidebar-footer">
           <button className="footer-link">Support</button>
           <button className="btn btn-ghost export">Export Data</button>
+          <button
+            className="btn btn-ghost reset-counter-btn"
+            onClick={resetCounter}
+            disabled={isResettingCounter}
+            aria-label="Reset order number to 0"
+          >
+            {isResettingCounter ? 'Resetting…' : '↻ Reset order number'}
+          </button>
+          {resetMsg && <span className="reset-msg">{resetMsg}</span>}
           <button className="btn nuke-btn" onClick={() => setNukeOpen(true)} aria-label="Wipe all order data">
             ☠ Nuke all data
           </button>
@@ -306,6 +342,24 @@ export default function AdminPage() {
                     setSettings({
                       ...settings,
                       trackingScreens: Number.isFinite(n) && n >= 1 ? Math.min(n, 8) : 1,
+                    });
+                  }}
+                  style={{ maxWidth: 120 }}
+                />
+                <label style={{ marginTop: '0.75rem' }}>Ready display time (minutes)</label>
+                <p className="hint" style={{ marginTop: '-0.25rem' }}>
+                  How long a completed order stays on the tracking dashboard before auto-disappearing.
+                </p>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={settings.readyTtlMinutes}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setSettings({
+                      ...settings,
+                      readyTtlMinutes: Number.isFinite(n) && n >= 1 ? Math.min(n, 60) : 5,
                     });
                   }}
                   style={{ maxWidth: 120 }}
@@ -738,6 +792,19 @@ export default function AdminPage() {
           font-size: 0.85rem;
         }
         .nuke-btn:hover { background: rgba(234,67,53,0.06); border-color: var(--g-red); }
+        .reset-counter-btn {
+          width: 100%;
+          font-size: 0.85rem;
+          background: transparent;
+          color: var(--text-muted);
+          border: 1px solid var(--border);
+        }
+        .reset-counter-btn:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+        .reset-msg {
+          font-size: 0.78rem;
+          color: var(--g-green);
+          padding: 0.15rem 0.25rem;
+        }
 
         .nuke-overlay {
           position: fixed; inset: 0;

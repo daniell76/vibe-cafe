@@ -69,6 +69,10 @@ export interface AppSettings {
   // How many landscape tracking screens the store has. Each one renders a
   // contiguous slice of the global sorted queue at /tracking/<n>.
   trackingScreens: number;
+  // How many minutes a completed (ready) order stays on the tracking
+  // dashboard before auto-disappearing. Applied IN ADDITION to the
+  // capacity cap — whichever fires first wins.
+  readyTtlMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -130,6 +134,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultMilk: 'None',
   defaultAddition: 'None',
   trackingScreens: 1,
+  readyTtlMinutes: 5,
 };
 
 export async function saveOrder(orderData: OrderData): Promise<string> {
@@ -247,6 +252,13 @@ export async function getSettings(): Promise<AppSettings> {
 export async function updateSettings(settings: Partial<AppSettings>): Promise<void> {
   const configRef = firestore.collection('config').doc('settings');
   await configRef.set(settings, { merge: true });
+}
+
+// Reset the order-number counter so the next order starts at 1. Does NOT
+// touch any orders — call nuke() if you want a clean queue too.
+export async function resetOrderCounter(): Promise<void> {
+  const counterRef = firestore.collection('config').doc('counters');
+  await counterRef.set({ orderSequence: 0 }, { merge: true });
 }
 
 export async function getNextOrderNumber(): Promise<number> {

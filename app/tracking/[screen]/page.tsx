@@ -17,6 +17,7 @@ interface Order {
 
 interface Settings {
   trackingScreens: number;
+  readyTtlMinutes: number;
 }
 
 // 3 states only per brief pp.14-19: pending (blue), making (yellow), completed (green).
@@ -50,9 +51,12 @@ export default function TrackingScreenPage() {
   const screenNum = Math.max(1, parseInt(params?.screen ?? '1', 10) || 1);
 
   const [orders, setOrders] = useState<Order[]>([]);
-  const [settings, setSettings] = useState<Settings>({ trackingScreens: 1 });
+  const [settings, setSettings] = useState<Settings>({ trackingScreens: 1, readyTtlMinutes: 5 });
   const [isLoading, setIsLoading] = useState(true);
   const [popups, setPopups] = useState<PopupItem[]>([]);
+  // Wall-clock tick driving readyTtlMinutes expiry. Updated every 15 s in
+  // an effect (not in render) so render stays pure.
+  const [nowTick, setNowTick] = useState(0);
 
   // Map of orderId → last-seen status. Used to detect making→completed
   // transitions across polls. `null` means we haven't fetched yet, so we
@@ -103,7 +107,11 @@ export default function TrackingScreenPage() {
       if (configRes.ok) {
         const cfg = await configRes.json();
         const n = Number(cfg?.trackingScreens);
-        setSettings({ trackingScreens: Number.isFinite(n) && n >= 1 ? n : 1 });
+        const ttl = Number(cfg?.readyTtlMinutes);
+        setSettings({
+          trackingScreens: Number.isFinite(n) && n >= 1 ? n : 1,
+          readyTtlMinutes: Number.isFinite(ttl) && ttl > 0 ? ttl : 5,
+        });
       }
     } catch (err) {
       console.error('Failed to fetch tracking data', err);
@@ -121,47 +129,64 @@ export default function TrackingScreenPage() {
     };
   }, [fetchAll]);
 
+  // Drive readyTtlMinutes expiry independently of the polling cadence so
+  // rows fall off even when /api/orders hasn't returned anything new.
+  useEffect(() => {
+    const seed = setTimeout(() => setNowTick(Date.now()), 0);
+    const id = setInterval(() => setNowTick(Date.now()), 15000);
+    return () => {
+      clearTimeout(seed);
+      clearInterval(id);
+    };
+  }, []);
+
   const totalScreens = Math.max(1, settings.trackingScreens);
 
-  // Build the global sorted queue with capacity-aware expiry (replaces the
-  // earlier fixed 3-min TTL): active orders (pending + making) are never
-  // dropped; completed orders fill the REMAINING slots, newest first, and
-  // older ones silently fall off only when newer orders push them out.
+  // Build the global sorted queue with TWO independent expiry rules:
+  //   (a) Per-order TTL: completed orders disappear `readyTtlMinutes` minutes
+  //       after they went green (default 5 min, admin-configurable).
+  //   (b) Capacity cap: total visible rows = trackingScreens × ROWS_PER_SCREEN.
+  //       Active orders are never dropped; older completed orders fall off
+  //       first when capacity is exceeded.
+  // Whichever fires first wins.
   //
-  // 1. Drop legacy 'pickedUp' orders entirely (status removed in brief pp.14-19).
-  // 2. Sort: completed (ready) → making → pending. Within the completed bucket
-  //    sort by completedAt (newest first) since "most recently ready" is what
-  //    a customer at the counter cares about; within active buckets sort by
-  //    createdAt.
-  // 3. Capacity = trackingScreens × ROWS_PER_SCREEN. Keep all active orders;
-  //    keep only the newest `capacity - activeCount` completed orders.
+  // Sort: completed (ready) → making → pending. Within each bucket, ascending
+  // by order number — matches brief p.16 mockup (#01 #02 #03 ready first).
   const queue = useMemo(() => {
-    const visible = orders.filter((o) => o.status !== 'pickedUp');
+    const now = nowTick || 0;
+    const ttlMs = Math.max(0, settings.readyTtlMinutes) * 60 * 1000;
+
+    // (a) TTL filter — only applies once the clock has advanced past 0.
+    const visible = orders.filter((o) => {
+      if (o.status === 'pickedUp') return false; // legacy status
+      if (o.status !== 'completed') return true;
+      if (now === 0 || ttlMs === 0 || !o.completedAt) return true;
+      const t = Date.parse(o.completedAt);
+      return !Number.isFinite(t) || now - t < ttlMs;
+    });
+
     visible.sort((a, b) => {
       const ba = statusBucket(a);
       const bb = statusBucket(b);
       if (ba !== bb) return ba - bb;
-      // Ascending by order number within each bucket — matches brief p.16
-      // mockup (#01 #02 #03 ready, #04 #25 #26 processing).
       const an = a.orderNumber ?? Number.MAX_SAFE_INTEGER;
       const bn = b.orderNumber ?? Number.MAX_SAFE_INTEGER;
       return an - bn;
     });
 
+    // (b) Capacity cap — protect active orders, trim oldest completeds.
     const totalCapacity = totalScreens * ROWS_PER_SCREEN;
     const completedCount = visible.filter((o) => o.status === 'completed').length;
     const activeCount = visible.length - completedCount;
     const completedBudget = Math.max(0, totalCapacity - activeCount);
-    // With ascending order-number sort, completed orders run oldest → newest.
-    // Drop the FIRST (oldest) overflow completeds; keep the LAST `budget`.
     const dropCount = Math.max(0, completedCount - completedBudget);
     let dropped = 0;
     return visible.filter((o) => {
-      if (o.status !== 'completed') return true; // active orders always kept
+      if (o.status !== 'completed') return true;
       if (dropped < dropCount) { dropped++; return false; }
       return true;
     });
-  }, [orders, totalScreens]);
+  }, [orders, totalScreens, settings.readyTtlMinutes, nowTick]);
   const outOfRange = screenNum > totalScreens;
   const start = (screenNum - 1) * ROWS_PER_SCREEN;
   const slice = outOfRange ? [] : queue.slice(start, start + ROWS_PER_SCREEN);
@@ -191,7 +216,7 @@ export default function TrackingScreenPage() {
             <span />
             <div className="legend-dots">
               <span>Received</span>
-              <span>Making</span>
+              <span>Brewing</span>
               <span>Ready</span>
             </div>
           </div>

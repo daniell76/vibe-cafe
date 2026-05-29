@@ -126,7 +126,7 @@ export default function BaristaPage() {
         </div>
         <div className="counters">
           <span className="pill"><span className="status-dot pending" /> {pending} Pending</span>
-          <span className="pill"><span className="status-dot making" /> {making} Making</span>
+          <span className="pill"><span className="status-dot making" /> {making} Brewing</span>
           <span className="pill"><span className="status-dot ready" /> {ready} Ready</span>
         </div>
       </div>
@@ -206,9 +206,20 @@ export default function BaristaPage() {
                 !isCompleted ? 'disabled' : '',
               ].filter(Boolean).join(' ');
 
+              const orderTime = (() => {
+                const raw = order.createdAt;
+                if (!raw) return '';
+                const d = new Date(raw);
+                if (Number.isNaN(d.getTime())) return '';
+                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              })();
+
               return (
                 <li key={order.id} className={`row ${tone}`}>
-                  <span className="order-num">#{num}</span>
+                  <div className="order-num-cell">
+                    <span className="order-num">#{num}</span>
+                    {orderTime && <span className="order-time">{orderTime}</span>}
+                  </div>
                   <span className="customer">{order.name}</span>
                   <div className="details">
                     <div className="drink">{order.coffeeOrder}</div>
@@ -230,14 +241,14 @@ export default function BaristaPage() {
                       aria-pressed={isMaking}
                       title={
                         makingDisabled
-                          ? 'Undo Complete first before changing Making'
+                          ? 'Undo Complete first before changing Brewing'
                           : isMaking
-                            ? 'Undo making (back to pending)'
-                            : 'Mark as making'
+                            ? 'Undo Brewing (back to pending)'
+                            : 'Mark as Brewing'
                       }
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5"/><circle cx="9" cy="7" r="4"/><path d="m19 8 2 2-2 2"/></svg>
-                      Making
+                      Brewing
                     </button>
                     <button
                       type="button"
@@ -247,9 +258,9 @@ export default function BaristaPage() {
                       aria-pressed={isCompleted}
                       title={
                         completeDisabled
-                          ? 'Mark Making first before Complete'
+                          ? 'Mark Brewing first before Complete'
                           : isCompleted
-                            ? 'Undo complete (back to making)'
+                            ? 'Undo complete (back to Brewing)'
                             : 'Mark as complete'
                       }
                     >
@@ -372,10 +383,16 @@ export default function BaristaPage() {
         .row.tone-pending { border-color: rgba(66,133,244,0.45); background: rgba(66,133,244,0.04); }
         .row.tone-making { border-color: rgba(251,188,5,0.55); background: rgba(251,188,5,0.06); }
         .row.tone-completed { border-color: rgba(52,168,83,0.45); background: rgba(52,168,83,0.06); }
+        .order-num-cell { display: flex; flex-direction: column; gap: 0.15rem; line-height: 1.1; }
         .order-num {
           font-size: 1.5rem;
           font-weight: 600;
           color: var(--text);
+        }
+        .order-time {
+          font-size: 0.78rem;
+          color: var(--text-faint);
+          font-variant-numeric: tabular-nums;
         }
         .row.tone-pending .order-num { color: var(--g-blue); }
         .row.tone-making .order-num { color: #c08800; }
