@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
       vibeImageUrl,
       unpickedImageUrls,
       artLabel,
+      noFoam, // true when the wizard skipped art-select for a hasFoam=false drink
     } = body;
 
     if (!name || !coffeeOrder || !happyPlace) {
@@ -50,8 +51,11 @@ export async function POST(req: NextRequest) {
 
     let imageUrl = selectedImageUrl as string | undefined;
 
-    // Legacy path: no preselected art — generate on the fly.
-    if (!imageUrl) {
+    // No-foam drinks (teas, cold coffees) skip foam generation entirely —
+    // the order is saved with no imageUrl and the barista row renders a
+    // generic placeholder.
+    if (!noFoam && !imageUrl) {
+      // Legacy path: no preselected art on a foam drink — generate on the fly.
       const settings = await getSettings().catch(() => null);
       const customPromptOverride = settings?.promptTemplate;
       const optimizedPrompt = await optimizePrompt(happyPlace);
@@ -71,7 +75,7 @@ export async function POST(req: NextRequest) {
       extraShots: typeof extraShots === 'number' && extraShots > 0 ? extraShots : undefined,
       artLabel: artLabel || undefined,
       happyPlace,
-      imageUrl: imageUrl!,
+      imageUrl: imageUrl || '',
       vibeImageUrl: vibeImageUrl || undefined,
       orderNumber,
     });

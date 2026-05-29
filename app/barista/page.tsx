@@ -184,6 +184,9 @@ export default function BaristaPage() {
               const isMaking = order.status === 'making';
               const isCompleted = order.status === 'completed';
               const isDownloaded = downloaded.has(order.id);
+              // No-foam orders (teas, cold coffees etc.) skipped foam gen, so
+              // there's no image to download. Track this and disable Download.
+              const isNoFoam = !order.imageUrl;
 
               // State-machine safeguards (user request 2026-05-26):
               //   pending  → Complete disabled (must mark Making first)
@@ -194,16 +197,17 @@ export default function BaristaPage() {
               const makingDisabled = isCompleted;
               const completeDisabled = !isMaking && !isCompleted;
 
-              // Download tri-state per brief p.19:
+              // Download tri-state per brief p.19, plus the no-foam case:
+              //   no-foam       → always disabled (no image exists)
               //   not-completed → disabled (greyed, not clickable)
               //   completed + never clicked → active blue (primary CTA)
               //   completed + already clicked → muted but still clickable
               const dlClasses = [
                 'mini-btn',
                 'download',
-                isCompleted && !isDownloaded ? 'primary' : '',
-                isCompleted && isDownloaded ? 'used' : '',
-                !isCompleted ? 'disabled' : '',
+                !isNoFoam && isCompleted && !isDownloaded ? 'primary' : '',
+                !isNoFoam && isCompleted && isDownloaded ? 'used' : '',
+                isNoFoam || !isCompleted ? 'disabled' : '',
               ].filter(Boolean).join(' ');
 
               const orderTime = (() => {
@@ -222,7 +226,10 @@ export default function BaristaPage() {
                   </div>
                   <span className="customer">{order.name}</span>
                   <div className="details">
-                    <div className="drink">{order.coffeeOrder}</div>
+                    <div className="drink">
+                      {order.coffeeOrder}
+                      {isNoFoam && <span className="no-foam-tag">no foam</span>}
+                    </div>
                     {addOns.length > 0 && (
                       <div className="chips">
                         {addOns.map((a) => (
@@ -267,7 +274,7 @@ export default function BaristaPage() {
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                       Complete
                     </button>
-                    {isCompleted ? (
+                    {isCompleted && !isNoFoam ? (
                       <a
                         className={dlClasses}
                         href={`/api/order/${order.id}/foam`}
@@ -285,14 +292,16 @@ export default function BaristaPage() {
                     ) : (
                       // Render as a disabled <button> instead of an <a>, so the
                       // browser blocks both the click handler and the underlying
-                      // foam-download GET request — fully inactive until Complete.
+                      // foam-download GET request. Reasons it's disabled:
+                      //   - no-foam drink (nothing was generated, never enables)
+                      //   - not yet completed (enables once status === 'completed')
                       <button
                         type="button"
                         className={dlClasses}
                         disabled
                         aria-disabled
-                        title="Mark order Complete to enable download"
-                        aria-label={`Download foam art for #${num} (disabled — order not complete)`}
+                        title={isNoFoam ? 'No coffee art for this drink' : 'Mark order Complete to enable download'}
+                        aria-label={`Download foam art for #${num} (disabled — ${isNoFoam ? 'no foam art' : 'order not complete'})`}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -399,7 +408,17 @@ export default function BaristaPage() {
         .row.tone-completed .order-num { color: var(--g-green); }
         .customer { font-size: 1rem; }
         .details { display: flex; flex-direction: column; gap: 0.35rem; }
-        .drink { font-weight: 500; }
+        .drink { font-weight: 500; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+        .no-foam-tag {
+          font-size: 0.7rem;
+          font-weight: 500;
+          padding: 0.1rem 0.45rem;
+          border-radius: 999px;
+          background: var(--surface-muted);
+          color: var(--text-muted);
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
         .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
         .chip {
           padding: 0.2rem 0.55rem;

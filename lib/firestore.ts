@@ -35,9 +35,42 @@ export interface OrderData {
 
 export type VibeImageAspect = '16:9' | '4:3';
 
+export interface DrinkItem {
+  name: string;
+  // If false, the ordering wizard skips the foam-art-select step and the
+  // order is saved with no foam imageUrl. Defaults to true on legacy
+  // string-only entries via normalizeDrinkCategories.
+  hasFoam: boolean;
+}
+
 export interface DrinkCategory {
   name: string;
-  items: string[];
+  items: DrinkItem[];
+}
+
+// Tolerate both the legacy string form ("Latte") and the new object form
+// ({ name: "Latte", hasFoam: true }) when reading from Firestore.
+export function normalizeDrinkItem(raw: unknown): DrinkItem {
+  if (typeof raw === 'string') return { name: raw, hasFoam: true };
+  if (raw && typeof raw === 'object') {
+    const r = raw as { name?: unknown; hasFoam?: unknown };
+    return {
+      name: String(r.name ?? ''),
+      hasFoam: typeof r.hasFoam === 'boolean' ? r.hasFoam : true,
+    };
+  }
+  return { name: '', hasFoam: true };
+}
+
+export function normalizeDrinkCategories(raw: unknown): DrinkCategory[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw.map((cat) => {
+    const c = cat as { name?: unknown; items?: unknown };
+    return {
+      name: String(c?.name ?? ''),
+      items: Array.isArray(c?.items) ? (c.items as unknown[]).map(normalizeDrinkItem) : [],
+    };
+  });
 }
 
 export interface AppSettings {
@@ -83,9 +116,26 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Pre-seeded per the PDF brief slide 8 (Signature Drinks / Coffees / Teas).
   // The customer dropdown groups items by these categories.
   drinkCategories: [
-    { name: 'Signature Drinks', items: ['Signature Drink 1', 'Signature Drink 2'] },
-    { name: 'Coffees', items: ['Espresso', 'Americano', 'Latte', 'Cappuccino', 'Flat White', 'Matcha Latte', 'Iced Cappuccino', 'Hot Chocolate'] },
-    { name: 'Teas', items: ['English Breakfast Tea', 'Earl Grey Tea', 'Peppermint Tea', 'Green Tea'] },
+    { name: 'Signature Drinks', items: [
+      { name: 'Signature Drink 1', hasFoam: true },
+      { name: 'Signature Drink 2', hasFoam: true },
+    ] },
+    { name: 'Coffees', items: [
+      { name: 'Espresso', hasFoam: false },
+      { name: 'Americano', hasFoam: false },
+      { name: 'Latte', hasFoam: true },
+      { name: 'Cappuccino', hasFoam: true },
+      { name: 'Flat White', hasFoam: true },
+      { name: 'Matcha Latte', hasFoam: true },
+      { name: 'Iced Cappuccino', hasFoam: false },
+      { name: 'Hot Chocolate', hasFoam: true },
+    ] },
+    { name: 'Teas', items: [
+      { name: 'English Breakfast Tea', hasFoam: false },
+      { name: 'Earl Grey Tea', hasFoam: false },
+      { name: 'Peppermint Tea', hasFoam: false },
+      { name: 'Green Tea', hasFoam: false },
+    ] },
   ],
   milks: ['Regular Milk', 'Oat Milk', 'Almond Milk', 'Soy Milk', 'None'],
   flavors: ['Vanilla', 'Caramel', 'Hazelnut', 'Sugar Free', 'None'],
@@ -228,10 +278,16 @@ export async function getOrders(): Promise<Record<string, unknown>[]> {
 
 export async function getOrderByNumber(orderNumber: number): Promise<Record<string, unknown> | null> {
   const collection = firestore.collection(collectionName);
-  const snapshot = await collection.where('orderNumber', '==', orderNumber).limit(1).get();
+  // After Reset Order Number, an old #1 from a previous session can collide
+  // with the brand-new #1 we just created. Return the NEWEST match so the
+  // booth always lands on the most recent order with that number. We pull
+  // up to 10 candidates and sort in memory — avoids needing a composite
+  // index (orderNumber ASC + createdAt DESC) while still bounding work.
+  const snapshot = await collection.where('orderNumber', '==', orderNumber).limit(10).get();
   if (snapshot.empty) return null;
-  const doc = snapshot.docs[0];
-  return { id: doc.id, ...doc.data() };
+  const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>));
+  docs.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  return docs[0];
 }
 
 export async function getSettings(): Promise<AppSettings> {
@@ -241,10 +297,15 @@ export async function getSettings(): Promise<AppSettings> {
     await configRef.set(DEFAULT_SETTINGS);
     return DEFAULT_SETTINGS;
   }
-  const stored = (doc.data() || {}) as Partial<AppSettings>;
+  const stored = (doc.data() || {}) as Partial<AppSettings> & { drinkCategories?: unknown };
+  // Migrate any legacy `items: string[]` entries to the new
+  // `items: { name, hasFoam }[]` form on read. Falls back to DEFAULT_SETTINGS
+  // if the stored field is missing or malformed.
+  const drinkCategories = normalizeDrinkCategories(stored.drinkCategories) ?? DEFAULT_SETTINGS.drinkCategories;
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    drinkCategories,
     instructions: { ...DEFAULT_SETTINGS.instructions, ...(stored.instructions || {}) },
   };
 }

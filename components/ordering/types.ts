@@ -14,9 +14,14 @@ export interface ArtOption {
   imageUrl: string;
 }
 
+export interface DrinkItem {
+  name: string;
+  hasFoam: boolean;
+}
+
 export interface DrinkCategory {
   name: string;
-  items: string[];
+  items: DrinkItem[];
 }
 
 export interface OrderSettings {
@@ -43,7 +48,13 @@ export const DEFAULT_ORDER_SETTINGS: OrderSettings = {
   appName: 'Vibe Café',
   tagline: 'Experience the Future of Coffee',
   drinkCategories: [
-    { name: 'Coffees', items: ['Latte', 'Cappuccino', 'Flat White', 'Americano', 'Mocha'] },
+    { name: 'Coffees', items: [
+      { name: 'Latte', hasFoam: true },
+      { name: 'Cappuccino', hasFoam: true },
+      { name: 'Flat White', hasFoam: true },
+      { name: 'Americano', hasFoam: false },
+      { name: 'Mocha', hasFoam: true },
+    ] },
   ],
   milks: ['Regular Milk', 'Oat Milk', 'Almond Milk', 'Soy Milk', 'None'],
   flavors: ['Vanilla', 'Caramel', 'Hazelnut', 'Sugar Free', 'None'],

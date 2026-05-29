@@ -5,9 +5,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import MenuListEditor from '@/components/MenuListEditor';
 import DrinkCategoriesEditor from '@/components/DrinkCategoriesEditor';
 
+interface DrinkItem {
+  name: string;
+  hasFoam: boolean;
+}
 interface DrinkCategory {
   name: string;
-  items: string[];
+  items: DrinkItem[];
 }
 
 interface Settings {
@@ -460,8 +464,8 @@ export default function AdminPage() {
               <div className="default-field">
                 <label>Default drink</label>
                 {(() => {
-                  const allDrinks = settings.drinkCategories.flatMap((c) => c.items);
-                  const hasMatch = allDrinks.includes(settings.defaultDrink);
+                  const allDrinkNames = settings.drinkCategories.flatMap((c) => c.items.map((it) => it.name));
+                  const hasMatch = allDrinkNames.includes(settings.defaultDrink);
                   return (
                     <select
                       value={hasMatch ? settings.defaultDrink : ''}
@@ -470,7 +474,7 @@ export default function AdminPage() {
                       {!hasMatch && <option value="" disabled>Select a drink…</option>}
                       {settings.drinkCategories.map((cat) => (
                         <optgroup key={cat.name} label={cat.name || '—'}>
-                          {cat.items.map((d) => <option key={d} value={d}>{d}</option>)}
+                          {cat.items.map((d) => <option key={d.name} value={d.name}>{d.name}{d.hasFoam ? '' : ' (no foam)'}</option>)}
                         </optgroup>
                       ))}
                     </select>

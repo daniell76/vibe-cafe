@@ -15,7 +15,7 @@ interface Props {
 export default function CategorizedSelect({ id, value, categories, placeholder, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const allItems = (categories || []).flatMap((c) => c.items);
+  const allNames = (categories || []).flatMap((c) => c.items.map((it) => it.name));
 
   // Close on outside click.
   useEffect(() => {
@@ -31,7 +31,7 @@ export default function CategorizedSelect({ id, value, categories, placeholder, 
     setOpen(false);
   };
 
-  const display = allItems.includes(value) ? value : (value || placeholder || 'Select…');
+  const display = allNames.includes(value) ? value : (value || placeholder || 'Select…');
 
   return (
     <div className="cat-select" ref={rootRef}>
@@ -43,7 +43,7 @@ export default function CategorizedSelect({ id, value, categories, placeholder, 
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className={`trigger-label ${!allItems.includes(value) ? 'placeholder' : ''}`}>{display}</span>
+        <span className={`trigger-label ${!allNames.includes(value) ? 'placeholder' : ''}`}>{display}</span>
         <span className={`caret ${open ? 'up' : ''}`} aria-hidden>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </span>
@@ -59,15 +59,15 @@ export default function CategorizedSelect({ id, value, categories, placeholder, 
                 {cat.name && <div className="group-head">{cat.name}</div>}
                 {cat.items.map((it) => (
                   <button
-                    key={it}
+                    key={it.name}
                     type="button"
                     role="option"
-                    aria-selected={value === it}
-                    className={`opt ${value === it ? 'active' : ''}`}
-                    onClick={() => pick(it)}
+                    aria-selected={value === it.name}
+                    className={`opt ${value === it.name ? 'active' : ''}`}
+                    onClick={() => pick(it.name)}
                   >
-                    <span>{it}</span>
-                    {value === it && (
+                    <span>{it.name}</span>
+                    {value === it.name && (
                       <svg className="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     )}
                   </button>

@@ -59,7 +59,12 @@ export default function OrderingPage() {
         const drinkCategories = Array.isArray(data.drinkCategories) && data.drinkCategories.length
           ? data.drinkCategories
           : DEFAULT_ORDER_SETTINGS.drinkCategories;
-        const allDrinks = drinkCategories.flatMap((c: { items: string[] }) => c.items);
+        // Normalised at the API layer, but defend here too — legacy string items
+        // shouldn't crash the customer page.
+        const allDrinkNames: string[] = drinkCategories.flatMap(
+          (c: { items: Array<{ name: string } | string> }) =>
+            c.items.map((it) => (typeof it === 'string' ? it : it.name)),
+        );
         setSettings({
           appName: data.appName ?? DEFAULT_ORDER_SETTINGS.appName,
           tagline: data.tagline ?? DEFAULT_ORDER_SETTINGS.tagline,
@@ -81,7 +86,7 @@ export default function OrderingPage() {
           if (prev.name || prev.happyPlace) return prev;
           return {
             ...prev,
-            coffeeOrder: resolveDefault(allDrinks, data.defaultDrink),
+            coffeeOrder: resolveDefault(allDrinkNames, data.defaultDrink),
             milk: resolveDefault(milks, data.defaultMilk),
             addition: resolveDefault(flavors, data.defaultAddition),
           };
@@ -137,7 +142,27 @@ export default function OrderingPage() {
     }
   };
 
+  // True if the currently selected drink has the hasFoam flag (defaults to
+  // true for drinks not found in the menu — pre-feature data, safety net).
+  const currentDrinkHasFoam = (): boolean => {
+    for (const cat of settings.drinkCategories) {
+      for (const it of cat.items) {
+        if (it.name === draft.coffeeOrder) return it.hasFoam !== false;
+      }
+    }
+    return true;
+  };
+
   const goToArt = async () => {
+    // No-foam drinks skip the art-select step entirely. Submit happens straight
+    // from the review screen without a generated foam image.
+    if (!currentDrinkHasFoam()) {
+      setArtOptions([]);
+      setVibeImageUrl(null);
+      setSelectedArtId(null);
+      setStep('review');
+      return;
+    }
     setStep('art');
     await fetchPreviews();
   };
@@ -184,9 +209,14 @@ export default function OrderingPage() {
   }, [stepHydrated]);
 
   const submitOrder = async () => {
+    const isNoFoam = !currentDrinkHasFoam();
+    // For foam drinks we need a selected art before we can submit. For no-foam
+    // drinks the wizard skipped art-select, so there's no selection to wait on.
     const selected = artOptions.find((o) => o.id === selectedArtId);
-    if (!selected) return;
-    const unpicked = artOptions.filter((o) => o.id !== selectedArtId).map((o) => o.imageUrl);
+    if (!isNoFoam && !selected) return;
+    const unpicked = !isNoFoam && selected
+      ? artOptions.filter((o) => o.id !== selectedArtId).map((o) => o.imageUrl)
+      : [];
     setIsSubmitting(true);
     setError(null);
     try {
@@ -200,10 +230,12 @@ export default function OrderingPage() {
           additions: draft.addition ? [draft.addition] : [],
           extraShots: draft.extraShots ?? 0,
           happyPlace: draft.happyPlace,
-          imageUrl: selected.imageUrl,
-          vibeImageUrl: vibeImageUrl || undefined,
+          // No foam → no imageUrl, no vibe (no preview was generated at all).
+          imageUrl: isNoFoam ? undefined : selected?.imageUrl,
+          vibeImageUrl: isNoFoam ? undefined : (vibeImageUrl || undefined),
           unpickedImageUrls: unpicked,
-          artLabel: selected.label,
+          artLabel: isNoFoam ? undefined : selected?.label,
+          noFoam: isNoFoam,
         }),
       });
       if (!res.ok) throw new Error('Failed to submit order');
@@ -226,7 +258,7 @@ export default function OrderingPage() {
     resumedRef.current = false;
     setDraft({
       ...EMPTY_DRAFT,
-      coffeeOrder: resolveDefault(settings.drinkCategories.flatMap((c) => c.items), settings.defaultDrink),
+      coffeeOrder: resolveDefault(settings.drinkCategories.flatMap((c) => c.items.map((it) => it.name)), settings.defaultDrink),
       milk: resolveDefault(settings.milks, settings.defaultMilk),
       addition: resolveDefault(settings.flavors, settings.defaultAddition),
     });
@@ -307,10 +339,10 @@ export default function OrderingPage() {
         />
       )}
 
-      {step === 'review' && selectedArtId && (
+      {step === 'review' && (
         <ReviewStep
           draft={draft}
-          selectedArt={artOptions.find((o) => o.id === selectedArtId)!}
+          selectedArt={selectedArtId ? artOptions.find((o) => o.id === selectedArtId) ?? null : null}
           isSubmitting={isSubmitting}
           showAddOns={settings.additionsEnabled || settings.extraShotsEnabled}
           onEdit={() => setStep('customize')}

@@ -5,7 +5,9 @@ import { ArtOption, OrderDraft } from './types';
 
 interface Props {
   draft: OrderDraft;
-  selectedArt: ArtOption;
+  // null when the customer's drink has hasFoam=false — the wizard skipped
+  // the art-select step entirely.
+  selectedArt: ArtOption | null;
   isSubmitting: boolean;
   // When both Additions and Extra Shots are disabled in admin, the Add-ons row
   // is omitted entirely (not shown as "None"). Derived from admin settings.
@@ -83,9 +85,20 @@ export default function ReviewStep({ draft, selectedArt, isSubmitting, showAddOn
 
         <div className="right">
           <div className="gradient-card art-frame">
-            <span className="kicker">Your vibe art</span>
+            <span className="kicker">{selectedArt ? 'Your vibe art' : 'No coffee art for this drink'}</span>
             <div className="art-circle">
-              <Image src={selectedArt.imageUrl} alt={selectedArt.label} width={420} height={420} unoptimized />
+              {selectedArt ? (
+                <Image src={selectedArt.imageUrl} alt={selectedArt.label} width={420} height={420} unoptimized />
+              ) : (
+                // No-foam placeholder — large drink-cup glyph in muted neutral.
+                <svg width="180" height="180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ color: '#9ca3af' }}>
+                  <path d="M17 8h1a4 4 0 0 1 0 8h-1" />
+                  <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
+                  <line x1="6" y1="2" x2="6" y2="4" />
+                  <line x1="10" y1="2" x2="10" y2="4" />
+                  <line x1="14" y1="2" x2="14" y2="4" />
+                </svg>
+              )}
             </div>
           </div>
         </div>
