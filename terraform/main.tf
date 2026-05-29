@@ -73,6 +73,15 @@ resource "google_project_iam_member" "runtime_aiplatform" {
   member  = "serviceAccount:${google_service_account.vibe_cafe_runtime.email}"
 }
 
+# Cloud Speech-to-Text — voice input on the AI Inspiration textarea.
+# Without this role the recognize call returns a generic grpc "undefined"
+# error and the mic button never produces a transcript.
+resource "google_project_iam_member" "runtime_speech" {
+  project = var.project_id
+  role    = "roles/speech.client"
+  member  = "serviceAccount:${google_service_account.vibe_cafe_runtime.email}"
+}
+
 # Bucket-scoped grant (not project-wide storage admin) — runtime only needs
 # read/write on the image bucket, nothing else.
 resource "google_storage_bucket_iam_member" "runtime_bucket" {

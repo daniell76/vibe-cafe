@@ -53,8 +53,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ transcript });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Internal Server Error';
-    console.error('Transcribe failed:', error);
+    // grpc-js errors stringify as "undefined undefined: undefined" when status
+    // metadata is missing (typically auth failures). Log the structured fields
+    // so we get something actionable in Cloud Run logs next time.
+    const e = error as { code?: number | string; details?: string; message?: string };
+    console.error('Transcribe failed:', { code: e?.code, details: e?.details, message: e?.message }, error);
+    const msg = e?.details || e?.message || 'Internal Server Error';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
