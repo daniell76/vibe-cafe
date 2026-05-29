@@ -84,12 +84,26 @@ const SIDEBAR: { key: SidebarKey; label: string }[] = [
   { key: 'analytics', label: 'Analytics' },
 ];
 
+// Flat view items (foam or vibe).
 interface GalleryImage {
   name: string;
   url: string;
   size: number;
   createdAt: string;
 }
+
+// Grouped view items: one row per order, with optional foam + vibe URLs.
+interface GalleryGroup {
+  orderId: string;
+  orderNumber?: number;
+  customerName: string;
+  createdAt: string;
+  foamUrl?: string;
+  vibeUrl?: string;
+}
+
+type GalleryView = 'foam' | 'vibe' | 'grouped';
+const GALLERY_PAGE_SIZE = 24;
 
 export default function AdminPage() {
   const [section, setSection] = useState<SidebarKey>('dashboard');
@@ -103,9 +117,13 @@ export default function AdminPage() {
   const [nukeResult, setNukeResult] = useState<string | null>(null);
   const [isResettingCounter, setIsResettingCounter] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [galleryView, setGalleryView] = useState<GalleryView>('foam');
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  const [galleryGroups, setGalleryGroups] = useState<GalleryGroup[]>([]);
+  const [galleryTotal, setGalleryTotal] = useState(0);
   const [galleryAll, setGalleryAll] = useState(false);
   const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryLoadingMore, setGalleryLoadingMore] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -131,27 +149,52 @@ export default function AdminPage() {
     }
   }, []);
 
-  const fetchGallery = useCallback(async (showAll: boolean) => {
-    setGalleryLoading(true);
-    try {
-      const res = await fetch(`/api/admin/gallery${showAll ? '?all=1' : ''}`);
-      if (res.ok) {
+  // Paged gallery fetch — first page replaces, subsequent pages append.
+  const fetchGalleryPage = useCallback(
+    async (view: GalleryView, showAll: boolean, offset: number) => {
+      const isFirst = offset === 0;
+      if (isFirst) setGalleryLoading(true);
+      else setGalleryLoadingMore(true);
+      try {
+        const url = new URL('/api/admin/gallery', window.location.origin);
+        url.searchParams.set('view', view);
+        url.searchParams.set('offset', String(offset));
+        url.searchParams.set('limit', String(GALLERY_PAGE_SIZE));
+        if (showAll) url.searchParams.set('all', '1');
+        const res = await fetch(url.toString());
+        if (!res.ok) return;
         const data = await res.json();
-        setGalleryImages(Array.isArray(data.images) ? data.images : []);
+        setGalleryTotal(typeof data.total === 'number' ? data.total : 0);
+        if (view === 'grouped') {
+          const next = Array.isArray(data.items) ? (data.items as GalleryGroup[]) : [];
+          setGalleryGroups((prev) => (isFirst ? next : [...prev, ...next]));
+          if (isFirst) setGalleryImages([]);
+        } else {
+          const next = Array.isArray(data.items) ? (data.items as GalleryImage[]) : [];
+          setGalleryImages((prev) => (isFirst ? next : [...prev, ...next]));
+          if (isFirst) setGalleryGroups([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch gallery', err);
+      } finally {
+        setGalleryLoading(false);
+        setGalleryLoadingMore(false);
       }
-    } catch (err) {
-      console.error('Failed to fetch gallery', err);
-    } finally {
-      setGalleryLoading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
-  // Lazy-load gallery when the user clicks into the section.
+  // Lazy-load gallery first page when the user enters the section OR changes
+  // the view / "show all" toggle. The setTimeout(0) defers the setState to
+  // satisfy react-hooks/set-state-in-effect.
   useEffect(() => {
     if (section !== 'gallery') return;
-    const t = setTimeout(() => fetchGallery(galleryAll), 0);
+    const t = setTimeout(() => fetchGalleryPage(galleryView, galleryAll, 0), 0);
     return () => clearTimeout(t);
-  }, [section, galleryAll, fetchGallery]);
+  }, [section, galleryView, galleryAll, fetchGalleryPage]);
+
+  const currentLoadedCount = galleryView === 'grouped' ? galleryGroups.length : galleryImages.length;
+  const hasMoreGallery = currentLoadedCount < galleryTotal;
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -721,8 +764,27 @@ export default function AdminPage() {
           <div className="card panel">
             <h3 className="panel-title brand">🖼 Gallery</h3>
             <p className="hint">
-              All coffee-art and vibe-booth images generated for orders. Click an image to view full size, or use the download button per tile.
+              Browse the images generated for this session&apos;s orders. Switch the view to see coffee art, big-screen vibe images, or grouped by order.
             </p>
+
+            <div className="gallery-views">
+              {([
+                { v: 'foam', label: 'Coffee art' },
+                { v: 'vibe', label: 'Big screen' },
+                { v: 'grouped', label: 'By order' },
+              ] as Array<{ v: GalleryView; label: string }>).map(({ v, label }) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`v-tab ${galleryView === v ? 'active' : ''}`}
+                  onClick={() => setGalleryView(v)}
+                  aria-pressed={galleryView === v}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <div className="gallery-bar">
               <label className="toggle">
                 <input
@@ -733,44 +795,117 @@ export default function AdminPage() {
                 <span>Show all (not just today)</span>
               </label>
               <span className="gallery-count">
-                {galleryLoading ? 'Loading…' : `${galleryImages.length} image${galleryImages.length === 1 ? '' : 's'}`}
+                {galleryLoading
+                  ? 'Loading…'
+                  : `${currentLoadedCount} of ${galleryTotal} ${galleryView === 'grouped' ? 'order' : 'image'}${galleryTotal === 1 ? '' : 's'}`}
               </span>
             </div>
-            {galleryImages.length === 0 && !galleryLoading ? (
-              <p className="empty">No images yet.</p>
-            ) : (
-              <div className="gallery-grid">
-                {galleryImages.map((img) => {
-                  // Extract a readable label from the GCS key
-                  // (e.g. "vibes/order-XYZ-123.png" → "vibes / order-XYZ-…").
-                  const filename = img.name.split('/').pop() || img.name;
-                  const niceName = filename.replace(/\.[a-z]+$/i, '');
-                  const kb = (img.size / 1024).toFixed(0);
-                  return (
-                    <div key={img.name} className="g-tile">
-                      <a href={img.url} target="_blank" rel="noreferrer" className="g-thumb-link">
-                        <Image src={img.url} alt={niceName} width={220} height={220} unoptimized />
-                      </a>
-                      <div className="g-meta">
-                        <span className="g-name" title={img.name}>{niceName}</span>
-                        <span className="g-size">{kb} KB</span>
+
+            {galleryView !== 'grouped' && (
+              galleryImages.length === 0 && !galleryLoading ? (
+                <p className="empty">No images yet for this view.</p>
+              ) : (
+                <div className="gallery-grid">
+                  {galleryImages.map((img) => {
+                    const filename = img.name.split('/').pop() || img.name;
+                    const niceName = filename.replace(/\.[a-z]+$/i, '');
+                    const kb = (img.size / 1024).toFixed(0);
+                    return (
+                      <div key={img.name} className="g-tile">
+                        <a href={img.url} target="_blank" rel="noreferrer" className="g-thumb-link">
+                          <Image src={img.url} alt={niceName} width={220} height={220} unoptimized loading="lazy" />
+                        </a>
+                        <div className="g-meta">
+                          <span className="g-name" title={img.name}>{niceName}</span>
+                          <span className="g-size">{kb} KB</span>
+                        </div>
+                        <a href={img.url} download={filename} className="g-dl" aria-label={`Download ${filename}`}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                          Download
+                        </a>
                       </div>
-                      <a
-                        href={img.url}
-                        download={filename}
-                        className="g-dl"
-                        aria-label={`Download ${filename}`}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="7 10 12 15 17 10" />
-                          <line x1="12" y1="15" x2="12" y2="3" />
-                        </svg>
-                        Download
-                      </a>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+              )
+            )}
+
+            {galleryView === 'grouped' && (
+              galleryGroups.length === 0 && !galleryLoading ? (
+                <p className="empty">No orders yet for this view.</p>
+              ) : (
+                <div className="gallery-groups">
+                  {galleryGroups.map((g) => {
+                    const num = g.orderNumber ? String(g.orderNumber).padStart(4, '0') : '----';
+                    const time = (() => {
+                      if (!g.createdAt) return '';
+                      const d = new Date(g.createdAt);
+                      return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    })();
+                    const foamFilename = g.foamUrl ? (g.foamUrl.split('/').pop() || 'foam.png') : '';
+                    const vibeFilename = g.vibeUrl ? (g.vibeUrl.split('/').pop() || 'vibe.png') : '';
+                    return (
+                      <div key={g.orderId} className="g-group">
+                        <div className="g-group-head">
+                          <span className="g-group-num">#{num}</span>
+                          <span className="g-group-name">{g.customerName || '—'}</span>
+                          {time && <span className="g-group-time">{time}</span>}
+                        </div>
+                        <div className="g-group-imgs">
+                          {g.foamUrl ? (
+                            <div className="g-group-tile">
+                              <a href={g.foamUrl} target="_blank" rel="noreferrer" className="g-thumb-link foam">
+                                <Image src={g.foamUrl} alt={`Coffee art for #${num}`} width={160} height={160} unoptimized loading="lazy" />
+                              </a>
+                              <div className="g-group-row">
+                                <span className="g-group-tag">Coffee art</span>
+                                <a href={g.foamUrl} download={foamFilename} className="g-dl">↓ Download</a>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="g-group-tile placeholder">
+                              <span className="g-group-tag">Coffee art</span>
+                              <span className="g-empty">— (no foam)</span>
+                            </div>
+                          )}
+                          {g.vibeUrl ? (
+                            <div className="g-group-tile">
+                              <a href={g.vibeUrl} target="_blank" rel="noreferrer" className="g-thumb-link">
+                                <Image src={g.vibeUrl} alt={`Vibe image for #${num}`} width={160} height={160} unoptimized loading="lazy" />
+                              </a>
+                              <div className="g-group-row">
+                                <span className="g-group-tag">Big screen</span>
+                                <a href={g.vibeUrl} download={vibeFilename} className="g-dl">↓ Download</a>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="g-group-tile placeholder">
+                              <span className="g-group-tag">Big screen</span>
+                              <span className="g-empty">— (not yet generated)</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            )}
+
+            {hasMoreGallery && !galleryLoading && (
+              <div className="load-more-row">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={galleryLoadingMore}
+                  onClick={() => fetchGalleryPage(galleryView, galleryAll, currentLoadedCount)}
+                >
+                  {galleryLoadingMore ? 'Loading…' : `Load ${Math.min(GALLERY_PAGE_SIZE, galleryTotal - currentLoadedCount)} more`}
+                </button>
               </div>
             )}
           </div>
@@ -982,14 +1117,109 @@ export default function AdminPage() {
         .sub { margin: 1rem 0 0.5rem 0; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.1em; }
         .gallery { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; margin-top: 0.5rem; }
 
+        .gallery-views {
+          display: inline-flex;
+          padding: 0.25rem;
+          background: var(--surface-muted);
+          border-radius: 999px;
+          gap: 0.25rem;
+          margin: 0.5rem 0 0.75rem;
+        }
+        .v-tab {
+          background: transparent;
+          border: none;
+          padding: 0.4rem 0.95rem;
+          border-radius: 999px;
+          color: var(--text-muted);
+          cursor: pointer;
+          font-size: 0.85rem;
+          font-weight: 500;
+        }
+        .v-tab:hover { color: var(--text); }
+        .v-tab.active { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-sm); }
+
         .gallery-bar {
           display: flex;
           align-items: center;
           justify-content: space-between;
           padding-bottom: 0.75rem;
-          margin-top: 0.5rem;
         }
         .gallery-count { font-size: 0.85rem; color: var(--text-muted); }
+
+        .gallery-groups {
+          display: flex;
+          flex-direction: column;
+          gap: 0.85rem;
+        }
+        .g-group {
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          background: var(--surface);
+          padding: 0.85rem 1rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.6rem;
+        }
+        .g-group-head {
+          display: flex;
+          align-items: baseline;
+          gap: 0.6rem;
+          font-size: 0.9rem;
+          color: var(--text-muted);
+        }
+        .g-group-num { font-weight: 700; color: var(--text); font-size: 1rem; }
+        .g-group-name { color: var(--text); font-weight: 500; }
+        .g-group-time { color: var(--text-faint); font-size: 0.78rem; margin-left: auto; }
+        .g-group-imgs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.75rem;
+        }
+        .g-group-tile {
+          display: flex;
+          flex-direction: column;
+          gap: 0.35rem;
+          background: var(--surface-muted);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem;
+          min-height: 100px;
+        }
+        .g-group-tile.placeholder {
+          align-items: center;
+          justify-content: center;
+          color: var(--text-faint);
+          font-size: 0.85rem;
+          text-align: center;
+        }
+        .g-group-tile .g-thumb-link {
+          display: block;
+          aspect-ratio: 1 / 1;
+          background: #111;
+          border-radius: 4px;
+          overflow: hidden;
+        }
+        .g-group-tile .g-thumb-link.foam { background: #fff; }
+        .g-group-tile .g-thumb-link :global(img) { width: 100%; height: 100%; object-fit: cover; }
+        .g-group-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.4rem;
+          font-size: 0.78rem;
+        }
+        .g-group-tag {
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          font-size: 0.7rem;
+        }
+        .g-empty { font-style: italic; }
+
+        .load-more-row {
+          display: flex;
+          justify-content: center;
+          padding: 1.25rem 0 0.25rem;
+        }
         .gallery-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
