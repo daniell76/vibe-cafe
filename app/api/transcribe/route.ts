@@ -1,46 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v2 } from '@google-cloud/speech';
+import { GoogleAuth } from 'google-auth-library';
 
-// Cloud docs recommend the v2 API for new code. @google-cloud/speech ships
-// both — the default `SpeechClient` export is the v1 client, so we have to
-// reach into the v2 namespace explicitly.
+// We tried the @google-cloud/speech SDK (both v1 and v2 clients). Both
+// failed at runtime with the gax-wrapped grpc-js error
+// "Error: undefined undefined: undefined" — empty code/details/metadata
+// from "Exception occurred in retry method that was not classified as
+// transient". The auth path is fine (Vertex AI calls work from the
+// same SA), but something between gax + grpc-js + the v2 endpoint was
+// swallowing the underlying status before it reached us.
 //
-// v2 differs from v1 in three relevant ways for inline-config sync recognize:
-//   1. The request is keyed by a recognizer resource path. The reserved
-//      recognizer name "_" means "use inline config without pre-creating
-//      a Recognizer" — exactly our use case.
-//   2. config shape: autoDecodingConfig instead of explicit
-//      encoding/sampleRateHertz; languageCodes is an array; features
-//      live under .features.
-//   3. Audio bytes are top-level (`content`) instead of `audio.content`.
-type SpeechClient = InstanceType<typeof v2.SpeechClient>;
+// REST instead of gRPC sidesteps the whole problem. We can read the
+// actual HTTP status and JSON error body, and the request shape is
+// exactly what the docs publish, no SDK overload guessing.
 
-// Lazy init so the build/lint passes on machines without ADC and only fails
-// loudly at request time if GOOGLE_CLOUD_PROJECT is missing in Cloud Run.
-let _client: SpeechClient | null = null;
-function client(): SpeechClient {
-  if (_client) return _client;
-  if (!process.env.GOOGLE_CLOUD_PROJECT) {
-    throw new Error('GOOGLE_CLOUD_PROJECT is not set — Speech API client cannot be initialised.');
-  }
-  _client = new v2.SpeechClient();
-  return _client;
+let _auth: GoogleAuth | null = null;
+function auth(): GoogleAuth {
+  if (!_auth) _auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+  return _auth;
 }
 
-function recognizerPath(): string {
-  const project = process.env.GOOGLE_CLOUD_PROJECT;
-  // The `_` recognizer is a reserved name meaning "no pre-created
-  // Recognizer — use the inline config from this request".
-  return `projects/${project}/locations/global/recognizers/_`;
+async function bearerToken(): Promise<string> {
+  const c = await auth().getClient();
+  const t = await c.getAccessToken();
+  if (!t.token) throw new Error('No access token returned for runtime service account');
+  return t.token;
 }
 
-// POST /api/transcribe — body is the raw audio (Content-Type set by the
-// browser's MediaRecorder, usually audio/webm;codecs=opus on Chromium).
-// Returns { transcript: string }.
+// POST /api/transcribe — body is raw audio (audio/webm;codecs=opus from
+// Chromium MediaRecorder; audio/ogg;codecs=opus from Firefox). Returns
+// { transcript: string }.
 //
-// We use sync recognize because the AI Inspiration prompt is short (a few
-// seconds of speech). Sync requests are capped at 60 s of audio by the API,
-// which is more than enough for this use case.
+// Calls the Cloud Speech-to-Text v2 REST endpoint with the reserved "_"
+// recognizer (inline config, no pre-created Recognizer resource).
+// autoDecodingConfig lets the server infer the codec from the container
+// header, so we don't have to know which browser the customer is using.
 export async function POST(req: NextRequest) {
   try {
     const audioBuf = Buffer.from(await req.arrayBuffer());
@@ -51,35 +44,57 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Audio too large (>10 MB)' }, { status: 413 });
     }
 
-    // autoDecodingConfig lets the server infer the codec from the audio
-    // container header, so we don't have to negotiate encoding /
-    // sampleRateHertz from the client (MediaRecorder defaults vary by
-    // browser).
-    const [response] = await client().recognize({
-      recognizer: recognizerPath(),
+    const project = process.env.GOOGLE_CLOUD_PROJECT;
+    if (!project) {
+      return NextResponse.json({ error: 'GOOGLE_CLOUD_PROJECT not set' }, { status: 500 });
+    }
+
+    const token = await bearerToken();
+    const url = `https://speech.googleapis.com/v2/projects/${project}/locations/global/recognizers/_:recognize`;
+    const body = {
       config: {
         autoDecodingConfig: {},
         languageCodes: ['en-US'],
         model: 'latest_short',
         features: { enableAutomaticPunctuation: true },
       },
-      content: audioBuf,
+      content: audioBuf.toString('base64'),
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-goog-user-project': project,
+      },
+      body: JSON.stringify(body),
     });
 
-    const transcript = (response.results || [])
+    const responseText = await res.text();
+    if (!res.ok) {
+      console.error('Speech v2 REST failed', { status: res.status, body: responseText.slice(0, 800) });
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const parsed = JSON.parse(responseText);
+        errMsg = parsed?.error?.message || errMsg;
+      } catch { /* keep HTTP fallback */ }
+      return NextResponse.json({ error: errMsg }, { status: 500 });
+    }
+
+    const data = JSON.parse(responseText) as {
+      results?: Array<{ alternatives?: Array<{ transcript?: string }> }>;
+    };
+    const transcript = (data.results || [])
       .map((r) => r.alternatives?.[0]?.transcript || '')
-      .filter((t): t is string => !!t)
+      .filter((t) => !!t)
       .join(' ')
       .trim();
 
     return NextResponse.json({ transcript });
   } catch (error: unknown) {
-    // grpc-js errors stringify as "undefined undefined: undefined" when status
-    // metadata is missing (typically auth failures). Log the structured fields
-    // so we get something actionable in Cloud Run logs next time.
-    const e = error as { code?: number | string; details?: string; message?: string };
-    console.error('Transcribe failed:', { code: e?.code, details: e?.details, message: e?.message }, error);
-    const msg = e?.details || e?.message || 'Internal Server Error';
+    const msg = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error('Transcribe failed:', error);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
