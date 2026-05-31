@@ -197,17 +197,17 @@ export default function BaristaPage() {
               const makingDisabled = isCompleted;
               const completeDisabled = !isMaking && !isCompleted;
 
-              // Download tri-state per brief p.19, plus the no-foam case:
-              //   no-foam       → always disabled (no image exists)
-              //   not-completed → disabled (greyed, not clickable)
-              //   completed + never clicked → active blue (primary CTA)
-              //   completed + already clicked → muted but still clickable
+              // Download states (user request 2026-05-29: available as soon
+              // as the order is submitted, no longer gated on 'completed'):
+              //   no-foam              → disabled (no image exists)
+              //   has foam, not yet downloaded → active blue (primary CTA)
+              //   has foam, downloaded → muted but still clickable
               const dlClasses = [
                 'mini-btn',
                 'download',
-                !isNoFoam && isCompleted && !isDownloaded ? 'primary' : '',
-                !isNoFoam && isCompleted && isDownloaded ? 'used' : '',
-                isNoFoam || !isCompleted ? 'disabled' : '',
+                !isNoFoam && !isDownloaded ? 'primary' : '',
+                !isNoFoam && isDownloaded ? 'used' : '',
+                isNoFoam ? 'disabled' : '',
               ].filter(Boolean).join(' ');
 
               const orderTime = (() => {
@@ -274,7 +274,7 @@ export default function BaristaPage() {
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                       Complete
                     </button>
-                    {isCompleted && !isNoFoam ? (
+                    {!isNoFoam ? (
                       <a
                         className={dlClasses}
                         href={`/api/order/${order.id}/foam`}
@@ -290,18 +290,16 @@ export default function BaristaPage() {
                         <span className="dl-label">Download</span>
                       </a>
                     ) : (
-                      // Render as a disabled <button> instead of an <a>, so the
-                      // browser blocks both the click handler and the underlying
-                      // foam-download GET request. Reasons it's disabled:
-                      //   - no-foam drink (nothing was generated, never enables)
-                      //   - not yet completed (enables once status === 'completed')
+                      // No-foam drink — nothing was generated, so the foam
+                      // download never enables. Disabled <button> blocks both
+                      // the click handler and the underlying GET.
                       <button
                         type="button"
                         className={dlClasses}
                         disabled
                         aria-disabled
-                        title={isNoFoam ? 'No coffee art for this drink' : 'Mark order Complete to enable download'}
-                        aria-label={`Download foam art for #${num} (disabled — ${isNoFoam ? 'no foam art' : 'order not complete'})`}
+                        title="No coffee art for this drink"
+                        aria-label={`Download foam art for #${num} (disabled — no foam art)`}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
