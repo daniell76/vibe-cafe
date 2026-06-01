@@ -365,7 +365,17 @@ export async function getOrderByNumber(orderNumber: number): Promise<Record<stri
   return docs[0];
 }
 
-export async function getSettings(): Promise<AppSettings> {
+// Short-TTL in-memory cache for settings. getSettings() is called on nearly
+// every request — including getOrders() on each barista/tracking poll (~5 s) —
+// so an uncached read per poll adds up. The settings doc changes rarely (only
+// via the admin Save button), so a 30 s cache is safe: admin edits go through
+// updateSettings() which busts the cache immediately on the instance that
+// handled the write, and other Cloud Run instances pick up the change within
+// the TTL. Cache is per-instance, which is fine for this read-mostly doc.
+const SETTINGS_CACHE_TTL_MS = 30_000;
+let _settingsCache: { value: AppSettings; expiresAt: number } | null = null;
+
+async function fetchSettings(): Promise<AppSettings> {
   const configRef = firestore.collection('config').doc('settings');
   const doc = await configRef.get();
   if (!doc.exists) {
@@ -385,9 +395,22 @@ export async function getSettings(): Promise<AppSettings> {
   };
 }
 
+export async function getSettings(): Promise<AppSettings> {
+  const now = Date.now();
+  if (_settingsCache && _settingsCache.expiresAt > now) {
+    return _settingsCache.value;
+  }
+  const value = await fetchSettings();
+  _settingsCache = { value, expiresAt: now + SETTINGS_CACHE_TTL_MS };
+  return value;
+}
+
 export async function updateSettings(settings: Partial<AppSettings>): Promise<void> {
   const configRef = firestore.collection('config').doc('settings');
   await configRef.set(settings, { merge: true });
+  // Bust the cache so the next read reflects the write immediately on this
+  // instance. Other instances expire within SETTINGS_CACHE_TTL_MS.
+  _settingsCache = null;
 }
 
 // Reset the order-number counter so the next order starts at 1. Does NOT
