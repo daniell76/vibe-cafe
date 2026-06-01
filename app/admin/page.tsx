@@ -104,6 +104,18 @@ interface GalleryGroup {
   vibeUrl?: string;
 }
 
+type AnalyticsRange = 'today' | 'yesterday' | 'all' | 'custom';
+
+interface AnalyticsData {
+  from: string | null;
+  to: string | null;
+  totalOrders: number;
+  totalServed: number;
+  inProgress: number;
+  topDrinks: Array<{ drink: string; count: number }>;
+  recentImages: Array<{ id: string; name: string; coffeeOrder: string; imageUrl: string }>;
+}
+
 type GalleryView = 'foam' | 'vibe' | 'grouped';
 const GALLERY_PAGE_SIZE = 24;
 
@@ -119,6 +131,11 @@ export default function AdminPage() {
   const [nukeResult, setNukeResult] = useState<string | null>(null);
   const [isResettingCounter, setIsResettingCounter] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>('today');
+  const [analyticsFrom, setAnalyticsFrom] = useState('');
+  const [analyticsTo, setAnalyticsTo] = useState('');
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [galleryView, setGalleryView] = useState<GalleryView>('foam');
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [galleryGroups, setGalleryGroups] = useState<GalleryGroup[]>([]);
@@ -197,6 +214,38 @@ export default function AdminPage() {
 
   const currentLoadedCount = galleryView === 'grouped' ? galleryGroups.length : galleryImages.length;
   const hasMoreGallery = currentLoadedCount < galleryTotal;
+
+  const fetchAnalytics = useCallback(
+    async (range: AnalyticsRange, from: string, to: string) => {
+      setAnalyticsLoading(true);
+      try {
+        const url = new URL('/api/admin/analytics', window.location.origin);
+        if (range === 'custom') {
+          if (from) url.searchParams.set('from', from);
+          if (to) url.searchParams.set('to', to);
+        } else {
+          url.searchParams.set('range', range);
+        }
+        const res = await fetch(url.toString());
+        if (res.ok) setAnalyticsData(await res.json());
+      } catch (err) {
+        console.error('Failed to fetch analytics', err);
+      } finally {
+        setAnalyticsLoading(false);
+      }
+    },
+    [],
+  );
+
+  // (Re)load analytics when entering the section or changing the range. For a
+  // custom range, only fire once both endpoints are set so we don't query on
+  // a half-filled picker.
+  useEffect(() => {
+    if (section !== 'analytics') return;
+    if (analyticsRange === 'custom' && !(analyticsFrom && analyticsTo)) return;
+    const t = setTimeout(() => fetchAnalytics(analyticsRange, analyticsFrom, analyticsTo), 0);
+    return () => clearTimeout(t);
+  }, [section, analyticsRange, analyticsFrom, analyticsTo, fetchAnalytics]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -950,41 +999,85 @@ export default function AdminPage() {
         {section === 'analytics' && (
           <div className="card panel">
             <h3 className="panel-title brand">📊 Analytics</h3>
-            <div className="metric-row">
-              <div className="metric">
-                <span className="m-label">Total Orders</span>
-                <span className="m-value">{totalOrders}</span>
-              </div>
-              <div className="metric">
-                <span className="m-label">Served</span>
-                <span className="m-value">{totalServed}</span>
-              </div>
-              <div className="metric">
-                <span className="m-label">In progress</span>
-                <span className="m-value">{totalOrders - totalServed}</span>
-              </div>
-            </div>
 
-            <h4 className="sub">Top Drinks</h4>
-            <ol className="top-list">
-              {drinksRanked.length === 0 && <li className="empty">No data yet.</li>}
-              {drinksRanked.map(([drink, count], i) => (
-                <li key={drink}>
-                  <span className="rank">{i + 1}</span>
-                  <span className="d-name">{drink}</span>
-                  <span className="d-count">{count}</span>
-                </li>
-              ))}
-            </ol>
-
-            <h4 className="sub">Recent gallery</h4>
-            <div className="gallery">
-              {orders.slice(0, 12).map((o) => (
-                <div key={o.id} className="gallery-item" title={`${o.name} — ${o.coffeeOrder}`}>
-                  <Image src={o.imageUrl} alt={o.name} width={120} height={120} unoptimized />
+            <div className="range-bar">
+              <div className="range-tabs">
+                {([
+                  { r: 'today', label: 'Today' },
+                  { r: 'yesterday', label: 'Yesterday' },
+                  { r: 'all', label: 'All days' },
+                  { r: 'custom', label: 'Custom' },
+                ] as Array<{ r: AnalyticsRange; label: string }>).map(({ r, label }) => (
+                  <button
+                    key={r}
+                    type="button"
+                    className={`r-tab ${analyticsRange === r ? 'active' : ''}`}
+                    onClick={() => setAnalyticsRange(r)}
+                    aria-pressed={analyticsRange === r}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {analyticsRange === 'custom' && (
+                <div className="range-dates">
+                  <label>
+                    From
+                    <input type="date" value={analyticsFrom} max={analyticsTo || undefined} onChange={(e) => setAnalyticsFrom(e.target.value)} />
+                  </label>
+                  <label>
+                    To
+                    <input type="date" value={analyticsTo} min={analyticsFrom || undefined} onChange={(e) => setAnalyticsTo(e.target.value)} />
+                  </label>
                 </div>
-              ))}
+              )}
+              <span className="range-status">{analyticsLoading ? 'Loading…' : ''}</span>
             </div>
+
+            {analyticsRange === 'custom' && !(analyticsFrom && analyticsTo) ? (
+              <p className="empty">Pick a start and end date to view analytics.</p>
+            ) : (
+              <>
+                <div className="metric-row">
+                  <div className="metric">
+                    <span className="m-label">Total Orders</span>
+                    <span className="m-value">{analyticsData?.totalOrders ?? 0}</span>
+                  </div>
+                  <div className="metric">
+                    <span className="m-label">Served</span>
+                    <span className="m-value">{analyticsData?.totalServed ?? 0}</span>
+                  </div>
+                  <div className="metric">
+                    <span className="m-label">In progress</span>
+                    <span className="m-value">{analyticsData?.inProgress ?? 0}</span>
+                  </div>
+                </div>
+
+                <h4 className="sub">Top Drinks</h4>
+                <ol className="top-list">
+                  {(!analyticsData || analyticsData.topDrinks.length === 0) && <li className="empty">No data for this range.</li>}
+                  {analyticsData?.topDrinks.map((d, i) => (
+                    <li key={d.drink}>
+                      <span className="rank">{i + 1}</span>
+                      <span className="d-name">{d.drink}</span>
+                      <span className="d-count">{d.count}</span>
+                    </li>
+                  ))}
+                </ol>
+
+                <h4 className="sub">Recent gallery</h4>
+                <div className="gallery">
+                  {(analyticsData?.recentImages || []).map((o) => (
+                    <div key={o.id} className="gallery-item" title={`${o.name} — ${o.coffeeOrder}`}>
+                      <Image src={o.imageUrl} alt={o.name} width={120} height={120} unoptimized loading="lazy" />
+                    </div>
+                  ))}
+                  {analyticsData && analyticsData.recentImages.length === 0 && (
+                    <p className="empty">No images for this range.</p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
       </section>
@@ -1162,6 +1255,47 @@ export default function AdminPage() {
         }
         .v-tab:hover { color: var(--text); }
         .v-tab.active { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-sm); }
+
+        .range-bar {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+          margin: 0.5rem 0 1.25rem;
+        }
+        .range-tabs {
+          display: inline-flex;
+          padding: 0.25rem;
+          background: var(--surface-muted);
+          border-radius: 999px;
+          gap: 0.25rem;
+        }
+        .r-tab {
+          background: transparent;
+          border: none;
+          padding: 0.4rem 0.95rem;
+          border-radius: 999px;
+          color: var(--text-muted);
+          cursor: pointer;
+          font-size: 0.85rem;
+          font-weight: 500;
+        }
+        .r-tab:hover { color: var(--text); }
+        .r-tab.active { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-sm); }
+        .range-dates { display: inline-flex; gap: 0.75rem; }
+        .range-dates label {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.8rem;
+          color: var(--text-muted);
+        }
+        .range-dates input {
+          width: auto;
+          padding: 0.35rem 0.5rem;
+          font-size: 0.85rem;
+        }
+        .range-status { font-size: 0.82rem; color: var(--text-muted); margin-left: auto; }
 
         .gallery-bar {
           display: flex;

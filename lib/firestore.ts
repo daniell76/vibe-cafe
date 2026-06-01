@@ -281,6 +281,69 @@ export async function getOrders(): Promise<Record<string, unknown>[]> {
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Record<string, unknown>));
 }
 
+export interface OrderAnalytics {
+  from: string | null;
+  to: string | null;
+  totalOrders: number;
+  totalServed: number;
+  inProgress: number;
+  topDrinks: Array<{ drink: string; count: number }>;
+  recentImages: Array<{ id: string; name: string; coffeeOrder: string; imageUrl: string }>;
+}
+
+// Aggregate order analytics over an ISO timestamp range [fromISO, toISO).
+// Either bound may be null (null from = since the beginning; null to = up to
+// now) so the admin can request today / yesterday / all-days / custom ranges.
+// Aggregation happens server-side so an all-days query over thousands of
+// orders returns a small fixed-size payload, not the raw documents.
+//
+// Firestore: a range filter + orderBy on the SAME field (createdAt) uses the
+// auto-managed single-field index — no composite index required.
+export async function getOrderAnalytics(
+  fromISO: string | null,
+  toISO: string | null,
+): Promise<OrderAnalytics> {
+  const collection = firestore.collection(collectionName);
+  let q: FirebaseFirestore.Query = collection;
+  if (fromISO) q = q.where('createdAt', '>=', fromISO);
+  if (toISO) q = q.where('createdAt', '<', toISO);
+  q = q.orderBy('createdAt', 'desc');
+  const snapshot = await q.get();
+
+  let totalServed = 0;
+  const drinkCounts: Record<string, number> = {};
+  const recentImages: OrderAnalytics['recentImages'] = [];
+
+  for (const doc of snapshot.docs) {
+    const d = doc.data() as Record<string, unknown>;
+    const status = String(d.status || '');
+    if (status === 'completed' || status === 'pickedUp') totalServed += 1;
+    const drink = String(d.coffeeOrder || 'Other');
+    drinkCounts[drink] = (drinkCounts[drink] || 0) + 1;
+    // Snapshot is newest-first, so the first 12 with an image are the most
+    // recent ones in range.
+    const imageUrl = typeof d.imageUrl === 'string' ? d.imageUrl : '';
+    if (imageUrl && recentImages.length < 12) {
+      recentImages.push({ id: doc.id, name: String(d.name || ''), coffeeOrder: drink, imageUrl });
+    }
+  }
+
+  const topDrinks = Object.entries(drinkCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([drink, count]) => ({ drink, count }));
+
+  return {
+    from: fromISO,
+    to: toISO,
+    totalOrders: snapshot.size,
+    totalServed,
+    inProgress: snapshot.size - totalServed,
+    topDrinks,
+    recentImages,
+  };
+}
+
 export async function getOrderByNumber(orderNumber: number): Promise<Record<string, unknown> | null> {
   const collection = firestore.collection(collectionName);
   // After Reset Order Number, an old #1 from a previous session can collide
