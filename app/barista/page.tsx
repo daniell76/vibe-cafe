@@ -37,6 +37,10 @@ export default function BaristaPage() {
   // signal is session-scoped — refreshing resets, which is fine because a
   // re-download is harmless.
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set());
+  // Display timezone for the per-order timestamp. Pulled from /api/config so
+  // the barista clock matches the configured event timezone, not the iPad's
+  // local zone. Defaults to undefined → browser local until config loads.
+  const [timezone, setTimezone] = useState<string | undefined>(undefined);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -60,6 +64,17 @@ export default function BaristaPage() {
       clearInterval(id);
     };
   }, [fetchOrders]);
+
+  // One-shot config fetch for the display timezone.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetch('/api/config')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((cfg) => { if (cfg?.timezone) setTimezone(cfg.timezone); })
+        .catch(() => {});
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   const setStatus = async (id: string, next: Status) => {
     setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status: next } : o)));
@@ -215,7 +230,13 @@ export default function BaristaPage() {
                 if (!raw) return '';
                 const d = new Date(raw);
                 if (Number.isNaN(d.getTime())) return '';
-                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                // Render in the configured event timezone (falls back to the
+                // browser's local zone until config loads / if unset).
+                return d.toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  ...(timezone ? { timeZone: timezone } : {}),
+                });
               })();
 
               return (

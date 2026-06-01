@@ -1,4 +1,5 @@
 import { Firestore } from '@google-cloud/firestore';
+import { safeTz, startOfTodayUtc } from './timezone';
 
 const project = process.env.GOOGLE_CLOUD_PROJECT;
 const collectionName = process.env.VIBE_CAFE_COLLECTION || 'orders';
@@ -110,6 +111,10 @@ export interface AppSettings {
   // before the "Skip and submit order" CTA appears. Configurable so
   // operators can tune for slow networks or impatient queues.
   coffeeArtBypassSeconds: number;
+  // IANA timezone (e.g. "America/New_York"). Backend stores UTC; this drives
+  // day boundaries (today/yesterday scoping, analytics) and front-end time
+  // display. Default "UTC" preserves the original behaviour.
+  timezone: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -190,6 +195,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   trackingScreens: 1,
   readyTtlMinutes: 5,
   coffeeArtBypassSeconds: 30,
+  timezone: 'UTC',
 };
 
 export async function saveOrder(orderData: OrderData): Promise<string> {
@@ -264,18 +270,19 @@ export async function getOrder(orderId: string): Promise<Record<string, unknown>
 
 export async function getOrders(): Promise<Record<string, unknown>[]> {
   const collection = firestore.collection(collectionName);
-  // Today's orders only (UTC day boundary). Barista needs to see the whole
-  // day's queue with no row cap; tracking applies its own capacity slicing
-  // on top. Yesterday's orders fall off automatically so back-to-back events
-  // start clean without needing the Nuke button.
+  // Today's orders only, where "today" is the operator's local day in the
+  // configured timezone (default UTC). This keeps an evening event that
+  // crosses UTC midnight — but not local midnight — from vanishing off the
+  // barista console mid-shift. Yesterday's orders fall off automatically so
+  // back-to-back events start clean without needing Nuke.
   //
   // Firestore: a single inequality + orderBy on the SAME field uses the
   // auto-managed single-field index — no composite index required.
   // saveOrder always stamps createdAt, so no doc is excluded.
-  const startOfTodayUtc = new Date();
-  startOfTodayUtc.setUTCHours(0, 0, 0, 0);
+  const tz = safeTz((await getSettings()).timezone);
+  const from = startOfTodayUtc(tz);
   const snapshot = await collection
-    .where('createdAt', '>=', startOfTodayUtc.toISOString())
+    .where('createdAt', '>=', from.toISOString())
     .orderBy('createdAt', 'desc')
     .get();
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Record<string, unknown>));

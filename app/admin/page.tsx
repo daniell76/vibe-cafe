@@ -37,6 +37,7 @@ interface Settings {
   trackingScreens: number;
   readyTtlMinutes: number;
   coffeeArtBypassSeconds: number;
+  timezone: string;
 }
 
 interface Order {
@@ -73,7 +74,42 @@ const DEFAULT_SETTINGS: Settings = {
   trackingScreens: 1,
   readyTtlMinutes: 5,
   coffeeArtBypassSeconds: 30,
+  timezone: 'UTC',
 };
+
+// Validate an IANA timezone string in the browser (same check the server
+// applies via safeTz). Empty / unknown zones fall back to UTC server-side.
+function isValidTz(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A short curated list for the timezone picker datalist. Operators can still
+// type any valid IANA zone; this is just convenience for the common cases.
+const COMMON_TIMEZONES = [
+  'UTC',
+  'Europe/London',
+  'Europe/Amsterdam',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Sao_Paulo',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+  'Pacific/Auckland',
+];
 
 type SidebarKey = 'dashboard' | 'menu' | 'content' | 'printer' | 'gallery' | 'analytics';
 
@@ -514,6 +550,25 @@ export default function AdminPage() {
                   }}
                   style={{ maxWidth: 120 }}
                 />
+
+                <label style={{ marginTop: '0.75rem' }}>Timezone</label>
+                <p className="hint" style={{ marginTop: '-0.25rem' }}>
+                  Drives day boundaries (today/yesterday, analytics) and on-screen times. Orders are always stored in UTC. Pick from the list or type any IANA zone (e.g. <code>America/New_York</code>).
+                </p>
+                <input
+                  type="text"
+                  list="tz-list"
+                  value={settings.timezone}
+                  placeholder="UTC"
+                  onChange={(e) => setSettings({ ...settings, timezone: e.target.value.trim() })}
+                  style={{ maxWidth: 280 }}
+                />
+                <datalist id="tz-list">
+                  {COMMON_TIMEZONES.map((z) => <option key={z} value={z} />)}
+                </datalist>
+                {!isValidTz(settings.timezone) && (
+                  <span className="tz-warn">Not a recognised timezone — UTC will be used until corrected.</span>
+                )}
               </div>
 
               <div className="save-bar">
@@ -1031,7 +1086,9 @@ export default function AdminPage() {
                   </label>
                 </div>
               )}
-              <span className="range-status">{analyticsLoading ? 'Loading…' : ''}</span>
+              <span className="range-status">
+                {analyticsLoading ? 'Loading…' : `Timezone: ${settings.timezone || 'UTC'}`}
+              </span>
             </div>
 
             {analyticsRange === 'custom' && !(analyticsFrom && analyticsTo) ? (
@@ -1296,6 +1353,7 @@ export default function AdminPage() {
           font-size: 0.85rem;
         }
         .range-status { font-size: 0.82rem; color: var(--text-muted); margin-left: auto; }
+        .tz-warn { font-size: 0.78rem; color: var(--g-red); margin-top: 0.1rem; }
 
         .gallery-bar {
           display: flex;

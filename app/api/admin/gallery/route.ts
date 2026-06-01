@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listImagesUnderPrefixes } from '@/lib/storage';
-import { getOrders } from '@/lib/firestore';
+import { getOrders, getSettings } from '@/lib/firestore';
+import { safeTz, startOfTodayUtc } from '@/lib/timezone';
 
 // GET /api/admin/gallery
 //   ?view=foam | vibe | grouped     (default: foam)
@@ -34,12 +35,6 @@ interface GroupedItem {
 function intParam(value: string | null, fallback: number): number {
   const n = parseInt(value || '', 10);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
-function todayCutoffISO(): string {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d.toISOString();
 }
 
 export async function GET(req: NextRequest) {
@@ -79,7 +74,8 @@ export async function GET(req: NextRequest) {
     let images: FlatItem[] = await listImagesUnderPrefixes(prefixes, 5000);
 
     if (!showAll) {
-      const cutoff = todayCutoffISO();
+      const tz = safeTz((await getSettings()).timezone);
+      const cutoff = startOfTodayUtc(tz).toISOString();
       images = images.filter((img) => img.createdAt >= cutoff);
     }
 
