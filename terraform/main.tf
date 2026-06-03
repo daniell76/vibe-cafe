@@ -110,9 +110,16 @@ resource "google_cloud_run_v2_service" "vibe_cafe" {
       # Keep CPU allocated even between requests so fire-and-forget background
       # work (e.g. the 4K vibe-image generation kicked off after the preview
       # response) reliably runs to completion.
+      # Memory bumped to 8Gi: 4K image buffers (~16-22MB each) plus several
+      # concurrent foam/vibe generations held in memory were OOMing the
+      # container. 8Gi memory requires >= 2 vCPU on Cloud Run; we use 4.
       resources {
         cpu_idle          = false
         startup_cpu_boost = true
+        limits = {
+          cpu    = "4"
+          memory = "8Gi"
+        }
       }
 
       env {
