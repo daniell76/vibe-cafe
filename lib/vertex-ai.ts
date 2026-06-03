@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
-const LOCATION = 'global'; // Gemini 3.1 preview image models require the global endpoint
+const LOCATION = 'global'; // Gemini 3.1 image models are served from the global endpoint
 
 // Lazy client init so the module can be imported at build time (Next collects
 // page data without a real GCP project). The first actual call will fail loud
@@ -20,7 +20,10 @@ function client(): GoogleGenAI {
 }
 
 const TEXT_MODEL = 'gemini-3.1-flash-lite';
-const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+// GA image model (not the *-preview variant). The preview model runs on
+// dynamic shared quota and returned 429 RESOURCE_EXHAUSTED under event burst
+// load; the GA model has standard provisioned quota.
+const IMAGE_MODEL = 'gemini-3.1-flash-image';
 
 // The preview image model uses dynamic shared quota and returns 429
 // RESOURCE_EXHAUSTED under bursty load (e.g. a busy event). Retry with backoff

@@ -18,7 +18,7 @@ const PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'cs-poc-r09bfysmbhuoftvjja2m
 const ACCOUNT = process.env.GCLOUD_ACCOUNT || 'daniel@danielxia.altostrat.com';
 const OUT_DIR = process.env.OUT_DIR || join(REPO_ROOT, 'tmp', 'vibe-v2');
 
-const MODEL = 'gemini-3.1-flash-image-preview';
+const MODEL = 'gemini-3.1-flash-image';
 const ENDPOINT =
   `https://aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/global/publishers/google/models/${MODEL}:generateContent`;
 

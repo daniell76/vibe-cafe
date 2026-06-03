@@ -24,7 +24,7 @@ const PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'nth-canto-497114-g3';
 const OUT_DIR = process.env.OUT_DIR || join(REPO_ROOT, 'tmp', 'vibe-style');
 
 const TEXT_MODEL = 'gemini-3.1-flash-lite';
-const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const IMAGE_MODEL = 'gemini-3.1-flash-image';
 const ENDPOINT = (model) =>
   `https://aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/global/publishers/google/models/${model}:generateContent`;
 

@@ -17,7 +17,7 @@ const ACCOUNT = process.env.GCLOUD_ACCOUNT || 'daniel@danielxia.altostrat.com';
 const OUT_DIR = process.env.OUT_DIR || join(REPO_ROOT, 'tmp', 'vibe-v3');
 
 const TEXT_MODEL = 'gemini-3.1-flash-lite';
-const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const IMAGE_MODEL = 'gemini-3.1-flash-image';
 const ENDPOINT = (model) =>
   `https://aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/global/publishers/google/models/${model}:generateContent`;
 
