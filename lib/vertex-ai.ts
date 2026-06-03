@@ -22,6 +22,19 @@ function client(): GoogleGenAI {
 const TEXT_MODEL = 'gemini-3.1-flash-lite';
 const IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 
+// The preview image model uses dynamic shared quota and returns 429
+// RESOURCE_EXHAUSTED under bursty load (e.g. a busy event). Retry with backoff
+// rather than immediately falling back to a blank image.
+function isRetryableAiError(err: unknown): boolean {
+  const e = err as { status?: number; code?: number; message?: string };
+  const status = e?.status ?? e?.code;
+  if (status === 429 || status === 503) return true;
+  const msg = String(e?.message || '');
+  return /RESOURCE_EXHAUSTED|UNAVAILABLE|\b429\b|\b503\b/.test(msg);
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 const TRANSPARENT_1PX =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
@@ -241,28 +254,50 @@ export async function generateVibeImage(
   aspectRatio: '16:9' | '4:3' = '16:9',
   renderTemplateOverride?: string,
   moodTemplateOverride?: string,
+  opts: { maxAttempts?: number } = {},
 ): Promise<Buffer> {
   const mood = await extractVibeMood(happyPlace, moodTemplateOverride);
-  try {
-    const renderTemplate = renderTemplateOverride || DEFAULT_VIBE_RENDER_TEMPLATE;
-    const finalPromptText = renderTemplate
-      .replace(/\{mood\}/g, mood)
-      .replace(/\{happyPlace\}/g, happyPlace)
-      .replace(/\{prompt\}/g, mood);
+  const renderTemplate = renderTemplateOverride || DEFAULT_VIBE_RENDER_TEMPLATE;
+  const finalPromptText = renderTemplate
+    .replace(/\{mood\}/g, mood)
+    .replace(/\{happyPlace\}/g, happyPlace)
+    .replace(/\{prompt\}/g, mood);
 
-    const response = await client().models.generateContent({
-      model: IMAGE_MODEL,
-      contents: [{ role: 'user', parts: [{ text: finalPromptText }] }],
-      config: { imageConfig: { aspectRatio, imageSize: '4K' } },
-    });
+  // Backoff schedule (ms) for 429/503. Defaults to 4 attempts (~50 s worst
+  // case) which fits inside the booth's 3-minute poll window. Callers waiting
+  // synchronously (regenerate) can pass a smaller maxAttempts.
+  const backoffs = [5000, 15000, 30000];
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 4);
 
-    const imagePart = response.candidates?.[0]?.content?.parts?.find(
-      (p) => p.inlineData?.mimeType?.startsWith('image/'),
-    );
-    if (imagePart?.inlineData?.data) return Buffer.from(imagePart.inlineData.data, 'base64');
-    console.warn('No vibe image in AI response.');
-  } catch (err) {
-    console.error('vibe render error:', err);
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await client().models.generateContent({
+        model: IMAGE_MODEL,
+        contents: [{ role: 'user', parts: [{ text: finalPromptText }] }],
+        config: { imageConfig: { aspectRatio, imageSize: '4K' } },
+      });
+      const imagePart = response.candidates?.[0]?.content?.parts?.find(
+        (p) => p.inlineData?.mimeType?.startsWith('image/'),
+      );
+      if (imagePart?.inlineData?.data) return Buffer.from(imagePart.inlineData.data, 'base64');
+      // Empty response without an error — treat as a soft failure, retry.
+      console.warn(`No vibe image in AI response (attempt ${attempt + 1}/${maxAttempts}).`);
+      lastErr = new Error('No image in response');
+    } catch (err) {
+      lastErr = err;
+      const retryable = isRetryableAiError(err);
+      console.error(`vibe render error (attempt ${attempt + 1}/${maxAttempts}, retryable=${retryable}):`, err);
+      if (!retryable) break;
+    }
+    if (attempt < maxAttempts - 1) {
+      await sleep(backoffs[Math.min(attempt, backoffs.length - 1)]);
+    }
   }
-  return Buffer.from(TRANSPARENT_1PX, 'base64');
+
+  // Out of retries. THROW rather than returning a transparent placeholder —
+  // a 70-byte blank uploaded to GCS makes the booth's HEAD poll succeed and
+  // show an empty screen. By throwing, the caller skips the upload, the booth
+  // keeps polling (then offers Regenerate), and no garbage object is written.
+  throw lastErr instanceof Error ? lastErr : new Error('Vibe image generation failed');
 }
