@@ -15,10 +15,17 @@ function client(): GoogleGenAI {
         'or in Cloud Run env config via terraform).',
     );
   }
-  // Bound each call so a model stuck retrying 429 internally can't hang the
-  // request for minutes (we saw a 140 s regenerate). 90 s still comfortably
-  // covers a legit 4K render (~20-40 s).
-  _client = new GoogleGenAI({ vertexai: true, project, location: LOCATION, httpOptions: { timeout: 90000 } });
+  // retryOptions.attempts:1 disables the SDK's built-in retry (it defaults to
+  // 5 attempts with exponential backoff on 408/429/5xx — that's what turned a
+  // single 429 into a 140 s hang). We want 429 to surface IMMEDIATELY so our
+  // own logic can fail fast to the next model. timeout:90s is a safety cap for
+  // a legit 4K render (~20-40 s).
+  _client = new GoogleGenAI({
+    vertexai: true,
+    project,
+    location: LOCATION,
+    httpOptions: { timeout: 90000, retryOptions: { attempts: 1 } },
+  });
   return _client;
 }
 
@@ -52,12 +59,23 @@ function tripPrimaryBreaker(): void {
 // The preview image model uses dynamic shared quota and returns 429
 // RESOURCE_EXHAUSTED under bursty load (e.g. a busy event). Retry with backoff
 // rather than immediately falling back to a blank image.
-function isRetryableAiError(err: unknown): boolean {
+// 429 / RESOURCE_EXHAUSTED specifically. On the global endpoint these come
+// from Dynamic Shared Quota (capacity), so retrying the SAME model is futile —
+// we fail fast to a different model instead.
+function isQuotaError(err: unknown): boolean {
   const e = err as { status?: number; code?: number; message?: string };
   const status = e?.status ?? e?.code;
-  if (status === 429 || status === 503) return true;
-  const msg = String(e?.message || '');
-  return /RESOURCE_EXHAUSTED|UNAVAILABLE|\b429\b|\b503\b/.test(msg);
+  if (status === 429) return true;
+  return /RESOURCE_EXHAUSTED|\b429\b/.test(String(e?.message || ''));
+}
+
+// Transient errors worth ONE quick same-model retry (5xx / timeout), as
+// opposed to 429 which we never retry on the same model.
+function isTransientAiError(err: unknown): boolean {
+  const e = err as { status?: number; code?: number; message?: string };
+  const status = e?.status ?? e?.code;
+  if (status && [500, 502, 503, 504, 408].includes(status)) return true;
+  return /UNAVAILABLE|INTERNAL|DEADLINE|\b50[024]\b|\b503\b/.test(String(e?.message || ''));
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -201,10 +219,11 @@ export async function generateFoamIcon(
       return { ok: true, buf };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[foam] concept="${concept}" model=${model} threw (retryable=${isRetryableAiError(err)}):`, msg);
+      const quota = isQuotaError(err);
+      console.error(`[foam] concept="${concept}" model=${model} threw (quota=${quota}):`, msg);
       lastReason = `error:${msg}`;
-      if (model === IMAGE_MODEL && isRetryableAiError(err)) tripPrimaryBreaker();
-      // fall through to the next model
+      if (model === IMAGE_MODEL && quota) tripPrimaryBreaker();
+      // fall through to the next model immediately (fail fast on 429)
     }
   }
   return { ok: false, reason: lastReason };
@@ -293,7 +312,6 @@ export async function generateVibeImage(
   aspectRatio: '16:9' | '4:3' = '16:9',
   renderTemplateOverride?: string,
   moodTemplateOverride?: string,
-  opts: { maxAttempts?: number } = {},
 ): Promise<Buffer> {
   const mood = await extractVibeMood(happyPlace, moodTemplateOverride);
   const renderTemplate = renderTemplateOverride || DEFAULT_VIBE_RENDER_TEMPLATE;
@@ -302,20 +320,16 @@ export async function generateVibeImage(
     .replace(/\{happyPlace\}/g, happyPlace)
     .replace(/\{prompt\}/g, mood);
 
-  // Backoff schedule (ms) for 429/503. Per model: primary gets `maxAttempts`
-  // (default 3 ≈ up to ~25 s), fallback gets 2. The whole thing fits inside
-  // the booth's 3-minute poll window. Synchronous callers (regenerate) pass a
-  // smaller maxAttempts.
-  const backoffs = [4000, 12000, 30000];
-  const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
-
+  // Fail-fast model fallback. The SDK's own retry is disabled (attempts:1), so
+  // a 429 surfaces instantly and we move to the next model with NO backoff —
+  // retrying the same model is pointless when the shared-quota pool is full.
+  // Only genuinely transient 5xx/timeout errors get a single ~1.5 s same-model
+  // retry. Worst case is ~2 quick tries per model, not the old ~140 s.
   const models = imageModelsToTry();
   let lastErr: unknown = null;
-  for (let mi = 0; mi < models.length; mi++) {
-    const model = models[mi];
+  for (const model of models) {
     const isPrimary = model === IMAGE_MODEL;
-    const attempts = isPrimary ? maxAttempts : 2;
-    for (let attempt = 0; attempt < attempts; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const response = await client().models.generateContent({
           model,
@@ -327,20 +341,26 @@ export async function generateVibeImage(
           (p) => p.inlineData?.mimeType?.startsWith('image/'),
         );
         if (imagePart?.inlineData?.data) return Buffer.from(imagePart.inlineData.data, 'base64');
-        console.warn(`[vibe] model=${model} no image in response (attempt ${attempt + 1}/${attempts}).`);
         lastErr = new Error('No image in response');
+        if (attempt === 0) { await sleep(1500); continue; } // empty resp: one quick retry
+        break;
       } catch (err) {
         lastErr = err;
-        const retryable = isRetryableAiError(err);
-        console.error(`[vibe] model=${model} render error (attempt ${attempt + 1}/${attempts}, retryable=${retryable}):`, err);
-        if (isPrimary && retryable) tripPrimaryBreaker();
-        if (!retryable) break; // stop retrying this model; fall through to the next
-      }
-      if (attempt < attempts - 1) {
-        await sleep(backoffs[Math.min(attempt, backoffs.length - 1)]);
+        if (isQuotaError(err)) {
+          console.error(`[vibe] model=${model} 429 → fail fast to next model:`, (err as Error)?.message);
+          if (isPrimary) tripPrimaryBreaker();
+          break; // FAIL FAST — no backoff, next model
+        }
+        if (isTransientAiError(err) && attempt === 0) {
+          console.warn(`[vibe] model=${model} transient error, one quick retry:`, (err as Error)?.message);
+          await sleep(1500);
+          continue;
+        }
+        console.error(`[vibe] model=${model} non-retryable error → next model:`, (err as Error)?.message);
+        break; // other error → next model
       }
     }
-    if (isPrimary && mi < models.length - 1) console.warn(`[vibe] primary ${IMAGE_MODEL} exhausted → falling back to ${IMAGE_MODEL_FALLBACK}`);
+    if (isPrimary && models.length > 1) console.warn(`[vibe] primary ${IMAGE_MODEL} failed → fallback ${IMAGE_MODEL_FALLBACK}`);
   }
 
   // Both models exhausted. THROW rather than returning a transparent

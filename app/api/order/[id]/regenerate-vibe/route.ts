@@ -37,10 +37,10 @@ export async function POST(
     const renderTemplate = settings?.vibePromptTemplate || undefined;
     const moodTemplate = settings?.vibeMoodTemplate || undefined;
 
-    // Synchronous (booth operator is waiting) — fewer retry attempts so the
-    // request doesn't hang. Throws on failure, so we never overwrite the
-    // existing vibe with a blank placeholder.
-    const buffer = await generateVibeImage(happyPlace, aspect, renderTemplate, moodTemplate, { maxAttempts: 2 });
+    // Fail-fast model fallback inside generateVibeImage means this returns
+    // quickly even during a 429 outage (no SDK retry, no backoff). Throws on
+    // total failure, so we never overwrite the existing vibe with a blank.
+    const buffer = await generateVibeImage(happyPlace, aspect, renderTemplate, moodTemplate);
     const filename = `vibes/order-${id}-${Date.now()}.png`;
     const newUrl = await uploadToGCS(buffer, filename);
 
