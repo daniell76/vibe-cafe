@@ -81,17 +81,15 @@ export async function POST(req: NextRequest) {
       console.warn(`[preview] all 4 icons failed for "${happyPlace}" — retrying`);
       batch = await generateBatch(happyPlace, foamBrainstorm || undefined, foamIconTemplate || undefined);
       okCount = batch.results.filter((r) => r.ok).length;
-      if (okCount === 0) {
-        console.error(`[preview] all 8 icons failed for "${happyPlace}" — giving up`);
-        return NextResponse.json(
-          {
-            error: 'generation_failed',
-            message:
-              "We couldn't generate art for that input. Try a different favourite item — something more specific like a place, hobby, or musician usually works well.",
-          },
-          { status: 422 },
-        );
-      }
+    }
+
+    // Even if generation totally failed (e.g. both image models 429 during an
+    // outage), we do NOT block the order. The backup-fill logic below replaces
+    // every failed slot with a bundled backup PNG, so the customer always gets
+    // 4 cards and can complete their order. (Previously this returned 422 and
+    // blocked ordering — undesirable during a capacity outage.)
+    if (okCount === 0) {
+      console.error(`[preview] all icons failed for "${happyPlace}" — serving 4 backup icons so the order can proceed`);
     }
 
     // Pick backups (random, no dupes) for the failed slots.
