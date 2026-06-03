@@ -20,10 +20,15 @@ function client(): GoogleGenAI {
 }
 
 const TEXT_MODEL = 'gemini-3.1-flash-lite';
-// GA image model (not the *-preview variant). The preview model runs on
-// dynamic shared quota and returned 429 RESOURCE_EXHAUSTED under event burst
-// load; the GA model has standard provisioned quota.
+// Primary image model: true 4K. Fallback: the 2.5 model, which tops out around
+// 1344×768 (16:9) but draws on a SEPARATE capacity pool. The entire Gemini 3.x
+// image family shares a global capacity pool that returned 429
+// RESOURCE_EXHAUSTED across all projects during a busy event; 2.5 kept serving.
+// So we try 3.x first (crisp 4K when available) and fall back to 2.5 on
+// exhaustion — a working image always beats a blank big screen.
 const IMAGE_MODEL = 'gemini-3.1-flash-image';
+const IMAGE_MODEL_FALLBACK = 'gemini-2.5-flash-image';
+const IMAGE_MODELS = [IMAGE_MODEL, IMAGE_MODEL_FALLBACK];
 
 // The preview image model uses dynamic shared quota and returns 429
 // RESOURCE_EXHAUSTED under bursty load (e.g. a busy event). Retry with backoff
@@ -135,43 +140,54 @@ export async function generateFoamIcon(
   happyPlace: string,
   templateOverride?: string,
 ): Promise<FoamIconResult> {
-  try {
-    const template = templateOverride || DEFAULT_FOAM_ICON_TEMPLATE;
-    const finalPromptText = template
-      .replace(/\{concept\}/g, concept)
-      .replace(/\{happyPlace\}/g, happyPlace)
-      .replace(/\{prompt\}/g, concept);
+  const template = templateOverride || DEFAULT_FOAM_ICON_TEMPLATE;
+  const finalPromptText = template
+    .replace(/\{concept\}/g, concept)
+    .replace(/\{happyPlace\}/g, happyPlace)
+    .replace(/\{prompt\}/g, concept);
 
-    const response = await client().models.generateContent({
-      model: IMAGE_MODEL,
-      contents: [{ role: 'user', parts: [{ text: finalPromptText }] }],
-      config: { imageConfig: { aspectRatio: '1:1', imageSize: '1K' } },
-    });
+  // Try the primary 4K model, then the 2.5 fallback if it errors (e.g. 429),
+  // blocks, or returns a placeholder. The preview route layers batch retry +
+  // backup PNGs on top of this.
+  let lastReason = 'unknown';
+  for (const model of IMAGE_MODELS) {
+    try {
+      const response = await client().models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ text: finalPromptText }] }],
+        config: { imageConfig: { aspectRatio: '1:1', imageSize: '1K' } },
+      });
 
-    const candidate = response.candidates?.[0];
-    const finishReason = String(candidate?.finishReason ?? '');
-    if (finishReason && BLOCK_REASONS.has(finishReason)) {
-      console.warn(`[foam] concept="${concept}" blocked: ${finishReason}`);
-      return { ok: false, reason: `blocked:${finishReason}` };
+      const candidate = response.candidates?.[0];
+      const finishReason = String(candidate?.finishReason ?? '');
+      if (finishReason && BLOCK_REASONS.has(finishReason)) {
+        console.warn(`[foam] concept="${concept}" model=${model} blocked: ${finishReason}`);
+        lastReason = `blocked:${finishReason}`;
+        continue;
+      }
+      const imagePart = candidate?.content?.parts?.find(
+        (p) => p.inlineData?.mimeType?.startsWith('image/'),
+      );
+      if (!imagePart?.inlineData?.data) {
+        console.warn(`[foam] concept="${concept}" model=${model} no image part (finishReason=${finishReason})`);
+        lastReason = 'no_image';
+        continue;
+      }
+      const buf = Buffer.from(imagePart.inlineData.data, 'base64');
+      if (buf.length < MIN_GENUINE_ICON_BYTES) {
+        console.warn(`[foam] concept="${concept}" model=${model} suspiciously small (${buf.length}B) — likely placeholder`);
+        lastReason = `tiny:${buf.length}`;
+        continue;
+      }
+      return { ok: true, buf };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[foam] concept="${concept}" model=${model} threw (retryable=${isRetryableAiError(err)}):`, msg);
+      lastReason = `error:${msg}`;
+      // fall through to the next model
     }
-    const imagePart = candidate?.content?.parts?.find(
-      (p) => p.inlineData?.mimeType?.startsWith('image/'),
-    );
-    if (!imagePart?.inlineData?.data) {
-      console.warn(`[foam] concept="${concept}" no image part (finishReason=${finishReason})`);
-      return { ok: false, reason: 'no_image' };
-    }
-    const buf = Buffer.from(imagePart.inlineData.data, 'base64');
-    if (buf.length < MIN_GENUINE_ICON_BYTES) {
-      console.warn(`[foam] concept="${concept}" suspiciously small (${buf.length}B) — likely placeholder; finishReason=${finishReason}`);
-      return { ok: false, reason: `tiny:${buf.length}` };
-    }
-    return { ok: true, buf };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[foam] concept="${concept}" threw:`, msg);
-    return { ok: false, reason: `error:${msg}` };
   }
+  return { ok: false, reason: lastReason };
 }
 
 // ─── Legacy passthroughs (kept so the order route's fallback path still compiles) ───
@@ -266,41 +282,47 @@ export async function generateVibeImage(
     .replace(/\{happyPlace\}/g, happyPlace)
     .replace(/\{prompt\}/g, mood);
 
-  // Backoff schedule (ms) for 429/503. Defaults to 4 attempts (~50 s worst
-  // case) which fits inside the booth's 3-minute poll window. Callers waiting
-  // synchronously (regenerate) can pass a smaller maxAttempts.
-  const backoffs = [5000, 15000, 30000];
-  const maxAttempts = Math.max(1, opts.maxAttempts ?? 4);
+  // Backoff schedule (ms) for 429/503. Per model: primary gets `maxAttempts`
+  // (default 3 ≈ up to ~25 s), fallback gets 2. The whole thing fits inside
+  // the booth's 3-minute poll window. Synchronous callers (regenerate) pass a
+  // smaller maxAttempts.
+  const backoffs = [4000, 12000, 30000];
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
 
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const response = await client().models.generateContent({
-        model: IMAGE_MODEL,
-        contents: [{ role: 'user', parts: [{ text: finalPromptText }] }],
-        config: { imageConfig: { aspectRatio, imageSize: '4K' } },
-      });
-      const imagePart = response.candidates?.[0]?.content?.parts?.find(
-        (p) => p.inlineData?.mimeType?.startsWith('image/'),
-      );
-      if (imagePart?.inlineData?.data) return Buffer.from(imagePart.inlineData.data, 'base64');
-      // Empty response without an error — treat as a soft failure, retry.
-      console.warn(`No vibe image in AI response (attempt ${attempt + 1}/${maxAttempts}).`);
-      lastErr = new Error('No image in response');
-    } catch (err) {
-      lastErr = err;
-      const retryable = isRetryableAiError(err);
-      console.error(`vibe render error (attempt ${attempt + 1}/${maxAttempts}, retryable=${retryable}):`, err);
-      if (!retryable) break;
+  for (let mi = 0; mi < IMAGE_MODELS.length; mi++) {
+    const model = IMAGE_MODELS[mi];
+    const attempts = mi === 0 ? maxAttempts : 2;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const response = await client().models.generateContent({
+          model,
+          // 2.5 ignores imageSize:'4K' (caps ~1344×768) but honors aspectRatio.
+          contents: [{ role: 'user', parts: [{ text: finalPromptText }] }],
+          config: { imageConfig: { aspectRatio, imageSize: '4K' } },
+        });
+        const imagePart = response.candidates?.[0]?.content?.parts?.find(
+          (p) => p.inlineData?.mimeType?.startsWith('image/'),
+        );
+        if (imagePart?.inlineData?.data) return Buffer.from(imagePart.inlineData.data, 'base64');
+        console.warn(`[vibe] model=${model} no image in response (attempt ${attempt + 1}/${attempts}).`);
+        lastErr = new Error('No image in response');
+      } catch (err) {
+        lastErr = err;
+        const retryable = isRetryableAiError(err);
+        console.error(`[vibe] model=${model} render error (attempt ${attempt + 1}/${attempts}, retryable=${retryable}):`, err);
+        if (!retryable) break; // stop retrying this model; fall through to the next
+      }
+      if (attempt < attempts - 1) {
+        await sleep(backoffs[Math.min(attempt, backoffs.length - 1)]);
+      }
     }
-    if (attempt < maxAttempts - 1) {
-      await sleep(backoffs[Math.min(attempt, backoffs.length - 1)]);
-    }
+    if (mi === 0) console.warn(`[vibe] primary ${IMAGE_MODEL} exhausted → falling back to ${IMAGE_MODEL_FALLBACK}`);
   }
 
-  // Out of retries. THROW rather than returning a transparent placeholder —
-  // a 70-byte blank uploaded to GCS makes the booth's HEAD poll succeed and
-  // show an empty screen. By throwing, the caller skips the upload, the booth
-  // keeps polling (then offers Regenerate), and no garbage object is written.
-  throw lastErr instanceof Error ? lastErr : new Error('Vibe image generation failed');
+  // Both models exhausted. THROW rather than returning a transparent
+  // placeholder — a 70-byte blank uploaded to GCS makes the booth's HEAD poll
+  // succeed and show an empty screen. By throwing, the caller skips the upload,
+  // the booth keeps polling (then offers Regenerate), and no garbage is written.
+  throw lastErr instanceof Error ? lastErr : new Error('Vibe image generation failed (all models)');
 }
