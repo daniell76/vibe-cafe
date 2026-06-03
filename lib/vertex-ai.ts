@@ -15,7 +15,10 @@ function client(): GoogleGenAI {
         'or in Cloud Run env config via terraform).',
     );
   }
-  _client = new GoogleGenAI({ vertexai: true, project, location: LOCATION });
+  // Bound each call so a model stuck retrying 429 internally can't hang the
+  // request for minutes (we saw a 140 s regenerate). 90 s still comfortably
+  // covers a legit 4K render (~20-40 s).
+  _client = new GoogleGenAI({ vertexai: true, project, location: LOCATION, httpOptions: { timeout: 90000 } });
   return _client;
 }
 
@@ -29,6 +32,22 @@ const TEXT_MODEL = 'gemini-3.1-flash-lite';
 const IMAGE_MODEL = 'gemini-3.1-flash-image';
 const IMAGE_MODEL_FALLBACK = 'gemini-2.5-flash-image';
 const IMAGE_MODELS = [IMAGE_MODEL, IMAGE_MODEL_FALLBACK];
+
+// Circuit breaker for the primary (3.x) image model. The 3.x family shares a
+// global capacity pool that can be 429 for extended periods. Without this, every
+// request pays the full primary-retry cost before falling back to 2.5 (we saw a
+// 140 s regenerate). Once the primary trips, we skip straight to the 2.5
+// fallback for COOLDOWN_MS, so only the first request in an outage is slow.
+const PRIMARY_COOLDOWN_MS = 5 * 60 * 1000;
+let _primaryCooldownUntil = 0;
+function imageModelsToTry(): string[] {
+  if (Date.now() < _primaryCooldownUntil) return [IMAGE_MODEL_FALLBACK];
+  return IMAGE_MODELS;
+}
+function tripPrimaryBreaker(): void {
+  _primaryCooldownUntil = Date.now() + PRIMARY_COOLDOWN_MS;
+  console.warn(`[image] primary ${IMAGE_MODEL} circuit-broken for ${PRIMARY_COOLDOWN_MS / 1000}s → using ${IMAGE_MODEL_FALLBACK}`);
+}
 
 // The preview image model uses dynamic shared quota and returns 429
 // RESOURCE_EXHAUSTED under bursty load (e.g. a busy event). Retry with backoff
@@ -150,7 +169,7 @@ export async function generateFoamIcon(
   // blocks, or returns a placeholder. The preview route layers batch retry +
   // backup PNGs on top of this.
   let lastReason = 'unknown';
-  for (const model of IMAGE_MODELS) {
+  for (const model of imageModelsToTry()) {
     try {
       const response = await client().models.generateContent({
         model,
@@ -184,6 +203,7 @@ export async function generateFoamIcon(
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[foam] concept="${concept}" model=${model} threw (retryable=${isRetryableAiError(err)}):`, msg);
       lastReason = `error:${msg}`;
+      if (model === IMAGE_MODEL && isRetryableAiError(err)) tripPrimaryBreaker();
       // fall through to the next model
     }
   }
@@ -289,10 +309,12 @@ export async function generateVibeImage(
   const backoffs = [4000, 12000, 30000];
   const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
 
+  const models = imageModelsToTry();
   let lastErr: unknown = null;
-  for (let mi = 0; mi < IMAGE_MODELS.length; mi++) {
-    const model = IMAGE_MODELS[mi];
-    const attempts = mi === 0 ? maxAttempts : 2;
+  for (let mi = 0; mi < models.length; mi++) {
+    const model = models[mi];
+    const isPrimary = model === IMAGE_MODEL;
+    const attempts = isPrimary ? maxAttempts : 2;
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
         const response = await client().models.generateContent({
@@ -311,13 +333,14 @@ export async function generateVibeImage(
         lastErr = err;
         const retryable = isRetryableAiError(err);
         console.error(`[vibe] model=${model} render error (attempt ${attempt + 1}/${attempts}, retryable=${retryable}):`, err);
+        if (isPrimary && retryable) tripPrimaryBreaker();
         if (!retryable) break; // stop retrying this model; fall through to the next
       }
       if (attempt < attempts - 1) {
         await sleep(backoffs[Math.min(attempt, backoffs.length - 1)]);
       }
     }
-    if (mi === 0) console.warn(`[vibe] primary ${IMAGE_MODEL} exhausted → falling back to ${IMAGE_MODEL_FALLBACK}`);
+    if (isPrimary && mi < models.length - 1) console.warn(`[vibe] primary ${IMAGE_MODEL} exhausted → falling back to ${IMAGE_MODEL_FALLBACK}`);
   }
 
   // Both models exhausted. THROW rather than returning a transparent
