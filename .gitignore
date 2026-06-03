@@ -60,3 +60,6 @@ docs/
 
 # Local prompt-test scratch images
 /tmp/
+
+# Data export / backup archives (scripts/export-data.mjs)
+/backups/
